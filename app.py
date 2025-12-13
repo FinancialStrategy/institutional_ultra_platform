@@ -31,73 +31,118 @@ import matplotlib.pyplot as plt
 from scipy import optimize
 
 
-# --- 3) ENHANCED CSS (with risk-focused styling) ---
+# --- 3) UPDATED CSS WITH LIGHT GREY BACKGROUND & DARK BLUE TITLES ---
 st.markdown("""
     <style>
+        /* Main background - Light Grey */
         .stApp {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            background-attachment: fixed;
+            background-color: #f5f7fa;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
+        
+        /* Main container styling */
         .main-container {
-            background: white;
-            border-radius: 15px;
+            background-color: white;
+            border-radius: 12px;
             padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin: 15px 0;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            border: 1px solid #e1e5eb;
         }
+        
+        /* Main header - Dark Blue */
         .main-header {
             font-size: 2.8rem;
             font-weight: 800;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: #1a237e;
             padding-bottom: 15px;
             margin-bottom: 30px;
             text-align: center;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            border-bottom: 3px solid #303f9f;
+            letter-spacing: -0.5px;
         }
-        .risk-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 15px;
-            padding: 20px;
-            margin: 10px 0;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-        .metric-highlight {
-            font-size: 2rem;
+        
+        /* Section headers - Dark Blue */
+        .section-header {
+            font-size: 1.8rem;
             font-weight: 700;
-            text-align: center;
-            margin: 10px 0;
+            color: #1a237e;
+            margin-top: 25px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e8eaf6;
         }
-        .shock-param-card {
-            background: #f8f9fa;
-            border: 2px solid #e9ecef;
+        
+        /* Sub-section headers */
+        .subsection-header {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #283593;
+            margin-top: 20px;
+            margin-bottom: 15px;
+        }
+        
+        /* Metric cards */
+        .metric-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 1px solid #dee2e6;
             border-radius: 10px;
             padding: 15px;
+            text-align: center;
             margin: 10px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
+        
+        .metric-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #424242;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #1a237e;
+            margin: 5px 0;
+        }
+        
+        .metric-change {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: #666;
+        }
+        
+        /* Tab styling */
         .stTabs [data-baseweb="tab-list"] {
             gap: 5px;
-            background: #f8f9fa;
+            background-color: #f0f2f6;
             padding: 5px;
             border-radius: 10px;
         }
+        
         .stTabs [data-baseweb="tab"] {
             border-radius: 8px;
             padding: 12px 24px;
             font-weight: 600;
+            color: #5c6bc0;
             transition: all 0.3s ease;
+            background-color: white;
+            border: 1px solid #e0e0e0;
         }
+        
         .stTabs [aria-selected="true"] {
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
             color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            border-color: #1a237e;
+            box-shadow: 0 4px 12px rgba(26, 35, 126, 0.15);
         }
-        .gradient-btn {
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        
+        /* Button styling */
+        .stButton > button {
+            background: linear-gradient(135deg, #303f9f 0%, #1a237e 100%);
             color: white;
             border: none;
             border-radius: 8px;
@@ -105,30 +150,177 @@ st.markdown("""
             font-weight: 600;
             transition: all 0.3s ease;
         }
-        .gradient-btn:hover {
+        
+        .stButton > button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 6px 15px rgba(26, 35, 126, 0.25);
         }
+        
+        /* Sidebar styling */
+        .css-1d391kg {
+            background-color: #ffffff;
+        }
+        
+        .css-1lcbmhc {
+            border-right: 1px solid #e0e0e0;
+        }
+        
+        /* Expander headers */
+        .streamlit-expanderHeader {
+            background-color: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            color: #1a237e;
+            font-weight: 600;
+        }
+        
+        /* Card-like containers */
+        .card-container {
+            background: white;
+            border: 1px solid #e1e5eb;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        }
+        
+        /* Warning/Info cards */
         .warning-card {
-            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%);
-            color: #333;
-            border-radius: 10px;
+            background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+            border-left: 4px solid #ff9800;
+            color: #5d4037;
+            border-radius: 8px;
             padding: 15px;
             margin: 10px 0;
         }
+        
         .success-card {
-            background: linear-gradient(135deg, #a1ffce 0%, #faffd1 100%);
-            color: #333;
-            border-radius: 10px;
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border-left: 4px solid #4caf50;
+            color: #1b5e20;
+            border-radius: 8px;
             padding: 15px;
             margin: 10px 0;
         }
-        .historical-event {
-            background: #e9ecef;
-            border-left: 5px solid #667eea;
+        
+        .info-card {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid #2196f3;
+            color: #0d47a1;
+            border-radius: 8px;
             padding: 15px;
             margin: 10px 0;
-            border-radius: 5px;
+        }
+        
+        /* Historical event styling */
+        .historical-event {
+            background: #f8f9fa;
+            border-left: 4px solid #303f9f;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        
+        .historical-event:hover {
+            background: #e8eaf6;
+            transform: translateX(2px);
+        }
+        
+        /* Input field styling */
+        .stSelectbox, .stNumberInput, .stDateInput, .stSlider {
+            background-color: white;
+            border-radius: 6px;
+        }
+        
+        /* Progress bar styling */
+        .stProgress > div > div > div {
+            background: linear-gradient(90deg, #303f9f 0%, #7986cb 100%);
+        }
+        
+        /* Risk badge styling */
+        .risk-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .risk-low {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .risk-medium {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+        
+        .risk-high {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        
+        .risk-extreme {
+            background-color: #f3e5f5;
+            color: #6a1b9a;
+        }
+        
+        /* Chart containers */
+        .plotly-chart-container {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            margin: 15px 0;
+        }
+        
+        /* Dataframe styling */
+        .stDataFrame {
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+        
+        /* Spinner styling */
+        .stSpinner > div {
+            border-top-color: #303f9f;
+        }
+        
+        /* Metric containers in columns */
+        .stMetric {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        
+        .stMetric > div > div {
+            color: #1a237e;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #c5cae9;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #7986cb;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -158,23 +350,19 @@ class EnhancedDataManager:
                 "MSCI Emerging Markets": "EEM"
             },
             "US ETFs (Major & Active)": {
-                # Equity ETFs
                 "SPDR S&P 500 ETF (SPY)": "SPY",
                 "Invesco QQQ Trust (QQQ)": "QQQ",
                 "iShares Russell 2000 (IWM)": "IWM",
                 "Vanguard Total Stock Market (VTI)": "VTI",
                 "ARK Innovation ETF (ARKK)": "ARKK",
-                # Sector ETFs
                 "Financial Select Sector SPDR (XLF)": "XLF",
                 "Technology Select Sector SPDR (XLK)": "XLK",
                 "Energy Select Sector SPDR (XLE)": "XLE",
                 "Health Care Select Sector SPDR (XLV)": "XLV",
-                # Commodity ETFs
                 "SPDR Gold Shares (GLD)": "GLD",
                 "iShares Silver Trust (SLV)": "SLV",
                 "United States Copper Index (CPER)": "CPER",
                 "VanEck Gold Miners (GDX)": "GDX",
-                # Bond/Fixed Income
                 "iShares 20+ Year Treasury Bond (TLT)": "TLT",
                 "iShares iBoxx $ High Yield Corp Bond (HYG)": "HYG"
             },
@@ -191,13 +379,11 @@ class EnhancedDataManager:
                 "Tupras": "TUPRS.IS", "Vakifbank": "VAKBN.IS", "Yapi Kredi": "YKBNK.IS"
             },
             "Japan (Major Financials & Industrials)": {
-                # Financials
                 "Mitsubishi UFJ Financial Group": "8306.T",
                 "Sumitomo Mitsui Financial Group": "8316.T",
                 "Mizuho Financial Group": "8411.T",
                 "Nomura Holdings": "8604.T",
                 "Daiwa Securities Group": "8601.T",
-                # Industrials & Manufacturers
                 "Toyota Motor": "7203.T",
                 "Sony Group": "6758.T",
                 "Hitachi": "6501.T",
@@ -206,19 +392,16 @@ class EnhancedDataManager:
                 "Nintendo": "7974.T",
                 "Panasonic": "6752.T",
                 "Canon": "7751.T",
-                # Holdings
                 "SoftBank Group": "9984.T",
                 "Mitsubishi Estate": "8802.T",
                 "Mitsui & Co.": "8031.T"
             },
             "Australia (Major Stocks)": {
-                # Banks & Financials
                 "Commonwealth Bank of Australia": "CBA.AX",
                 "Westpac Banking Corporation": "WBC.AX",
                 "Australia and New Zealand Banking Group": "ANZ.AX",
                 "National Australia Bank": "NAB.AX",
                 "Macquarie Group": "MQG.AX",
-                # Industrial Holdings
                 "BHP Group": "BHP.AX",
                 "Rio Tinto": "RIO.AX",
                 "Fortescue Metals Group": "FMG.AX",
@@ -226,7 +409,6 @@ class EnhancedDataManager:
                 "Wesfarmers": "WES.AX",
                 "Woolworths Group": "WOW.AX",
                 "Transurban Group": "TCL.AX",
-                # Mining & Metals
                 "Newcrest Mining": "NCM.AX",
                 "South32": "S32.AX",
                 "Woodside Energy Group": "WDS.AX"
@@ -306,12 +488,6 @@ def _fetch_and_align_data_cached(
 ) -> Tuple[pd.DataFrame, pd.Series, Dict]:
     """
     Robust data fetching with proper alignment and forward-filling.
-    IMPORTANT: No Streamlit UI calls inside cached function.
-
-    Returns:
-        df_prices: Cleaned price DataFrame with aligned dates
-        benchmark_series: S&P 500 benchmark data (if available)
-        data_quality_report: Dictionary with data quality metrics + warnings
     """
     warnings_list: List[str] = []
     infos_list: List[str] = []
@@ -325,7 +501,6 @@ def _fetch_and_align_data_cached(
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d")
 
-    # Download data (with timeout fallback for yfinance version differences)
     try:
         data = yf.download(
             all_tickers,
@@ -338,7 +513,6 @@ def _fetch_and_align_data_cached(
             timeout=30
         )
     except TypeError:
-        # Some yfinance versions may not support `timeout`
         data = yf.download(
             all_tickers,
             start=start_date,
@@ -358,7 +532,6 @@ def _fetch_and_align_data_cached(
                 if ticker in data.columns.levels[0] and ("Close" in data[ticker].columns):
                     prices_dict[ticker] = data[ticker]["Close"].rename(ticker)
             else:
-                # Single-ticker or flat columns
                 if "Close" in data.columns:
                     prices_dict[ticker] = data["Close"].rename(ticker)
 
@@ -391,7 +564,6 @@ def _fetch_and_align_data_cached(
 
     df_raw = pd.DataFrame(prices_dict)
 
-    # Remove tickers with insufficient data
     valid_tickers = []
     removed_insufficient = []
     for ticker in df_raw.columns:
@@ -411,7 +583,6 @@ def _fetch_and_align_data_cached(
 
     infos_list.append(f"Aligning time series... Original shape: {df_filtered.shape}")
 
-    # Fill missing values and drop remaining NA rows
     df_filled = df_filtered.ffill().bfill()
     df_clean = df_filled.dropna()
 
@@ -421,8 +592,7 @@ def _fetch_and_align_data_cached(
             "total_rows": int(len(df_clean))
         }
 
-    # Separate benchmark from portfolio assets
-    selected = list(dict.fromkeys(selected_tickers))  # de-duplicate while preserving order
+    selected = list(dict.fromkeys(selected_tickers))
     portfolio_tickers = [t for t in selected if t in df_clean.columns]
 
     benchmark_data = pd.Series(dtype=float)
@@ -437,7 +607,6 @@ def _fetch_and_align_data_cached(
         df_portfolio = df_clean[portfolio_tickers].copy()
         warnings_list.append("Benchmark data not available for comparison (^GSPC).")
 
-    # Final data quality report
     final_report = {
         "initial_tickers": int(len(all_tickers)),
         "valid_tickers": int(len(valid_tickers)),
@@ -859,7 +1028,7 @@ class AdvancedVaREngine:
                 x=self.returns * 100,
                 nbinsx=50,
                 name="Returns",
-                marker_color='rgba(102, 126, 234, 0.7)',
+                marker_color='rgba(41, 98, 255, 0.7)',
                 opacity=0.7
             ),
             row=1, col=1
@@ -876,7 +1045,7 @@ class AdvancedVaREngine:
                 y=y_norm * len(self.returns) * (x_norm[1] - x_norm[0]),
                 mode='lines',
                 name='Normal Fit',
-                line=dict(color='red', width=2)
+                line=dict(color='#283593', width=2)
             ),
             row=1, col=1
         )
@@ -890,7 +1059,7 @@ class AdvancedVaREngine:
                 x=losses[losses > 0],
                 nbinsx=40,
                 name="Losses",
-                marker_color='rgba(255, 107, 107, 0.7)',
+                marker_color='rgba(239, 83, 80, 0.7)',
                 opacity=0.7
             ),
             row=1, col=2
@@ -900,9 +1069,10 @@ class AdvancedVaREngine:
         fig.add_vline(
             x=var_hist,
             line_dash="dash",
-            line_color="red",
+            line_color="#d32f2f",
             annotation_text=f"VaR {confidence*100:.0f}% = {var_hist:.2f}%",
             annotation_position="top right",
+            annotation_font_color="#d32f2f",
             row=1, col=2
         )
         
@@ -916,7 +1086,7 @@ class AdvancedVaREngine:
                 y=sample_quantiles,
                 mode='markers',
                 name='QQ Plot',
-                marker=dict(size=6, color='orange')
+                marker=dict(size=6, color='#ff9800')
             ),
             row=2, col=1
         )
@@ -930,7 +1100,7 @@ class AdvancedVaREngine:
                 y=[min_val, max_val],
                 mode='lines',
                 name='Normal Line',
-                line=dict(color='red', dash='dash')
+                line=dict(color='#283593', dash='dash')
             ),
             row=2, col=1
         )
@@ -946,7 +1116,7 @@ class AdvancedVaREngine:
                 x=valid_methods["Method"],
                 y=valid_methods["VaR_1day_pct"],
                 name="VaR (%)",
-                marker_color='rgba(102, 126, 234, 0.8)',
+                marker_color='rgba(41, 98, 255, 0.8)',
                 text=valid_methods["VaR_1day_pct"].apply(lambda x: f"{x:.2f}%"),
                 textposition='auto'
             ),
@@ -960,8 +1130,8 @@ class AdvancedVaREngine:
                 y=valid_methods["CVaR_pct"],
                 mode='lines+markers',
                 name="CVaR/ES (%)",
-                line=dict(color='red', width=3),
-                marker=dict(size=10)
+                line=dict(color='#d32f2f', width=3),
+                marker=dict(size=10, symbol='diamond')
             ),
             row=2, col=2
         )
@@ -972,17 +1142,19 @@ class AdvancedVaREngine:
             showlegend=True,
             template="plotly_white",
             title_text=f"Advanced VaR Analysis (Confidence: {confidence*100:.0f}%, Investment: ${investment_amount:,.0f})",
-            title_font_size=16
+            title_font_size=16,
+            title_font_color="#1a237e",
+            font_color="#424242"
         )
         
-        fig.update_xaxes(title_text="Daily Return (%)", row=1, col=1)
-        fig.update_yaxes(title_text="Frequency", row=1, col=1)
-        fig.update_xaxes(title_text="Daily Loss (%)", row=1, col=2)
-        fig.update_yaxes(title_text="Frequency", row=1, col=2)
-        fig.update_xaxes(title_text="Theoretical Quantiles", row=2, col=1)
-        fig.update_yaxes(title_text="Sample Quantiles", row=2, col=1)
-        fig.update_xaxes(title_text="Method", row=2, col=2, tickangle=45)
-        fig.update_yaxes(title_text="Value (%)", row=2, col=2)
+        fig.update_xaxes(title_text="Daily Return (%)", row=1, col=1, title_font_color="#424242")
+        fig.update_yaxes(title_text="Frequency", row=1, col=1, title_font_color="#424242")
+        fig.update_xaxes(title_text="Daily Loss (%)", row=1, col=2, title_font_color="#424242")
+        fig.update_yaxes(title_text="Frequency", row=1, col=2, title_font_color="#424242")
+        fig.update_xaxes(title_text="Theoretical Quantiles", row=2, col=1, title_font_color="#424242")
+        fig.update_yaxes(title_text="Sample Quantiles", row=2, col=1, title_font_color="#424242")
+        fig.update_xaxes(title_text="Method", row=2, col=2, tickangle=45, title_font_color="#424242")
+        fig.update_yaxes(title_text="Value (%)", row=2, col=2, title_font_color="#424242")
         
         return fig
     
@@ -1006,25 +1178,28 @@ class AdvancedVaREngine:
                 z=var_surface,
                 x=holding_periods,
                 y=confidence_levels * 100,
-                colorscale='Viridis',
+                colorscale='Blues',
                 contours={
-                    "z": {"show": True, "usecolormap": True, "highlightcolor": "limegreen", "project": {"z": True}}
+                    "z": {"show": True, "usecolormap": True, "highlightcolor": "#1a237e", "project": {"z": True}}
                 }
             )
         ])
         
         fig.update_layout(
             title="VaR Surface: Confidence Level vs Holding Period",
+            title_font_color="#1a237e",
             scene=dict(
                 xaxis_title="Holding Period (Days)",
                 yaxis_title="Confidence Level (%)",
                 zaxis_title="VaR (%)",
                 camera=dict(
                     eye=dict(x=1.5, y=1.5, z=1.5)
-                )
+                ),
+                xaxis=dict(color="#424242"),
+                yaxis=dict(color="#424242"),
+                zaxis=dict(color="#424242")
             ),
-            height=700,
-            template="plotly_dark"
+            height=700
         )
         
         return fig
@@ -1303,7 +1478,7 @@ class EnhancedStressTestEngine:
                 x=scenarios,
                 y=losses,
                 name="Expected Loss (%)",
-                marker_color='rgba(255, 107, 107, 0.8)',
+                marker_color='rgba(239, 83, 80, 0.8)',
                 text=[f"{l:.1f}%" for l in losses],
                 textposition='auto'
             ),
@@ -1316,7 +1491,7 @@ class EnhancedStressTestEngine:
                 x=scenarios,
                 y=var_values,
                 name="VaR 95%",
-                marker_color='rgba(102, 126, 234, 0.6)',
+                marker_color='rgba(41, 98, 255, 0.6)',
                 text=[f"{v:.1f}%" for v in var_values],
                 textposition='auto'
             ),
@@ -1328,7 +1503,7 @@ class EnhancedStressTestEngine:
                 x=scenarios,
                 y=cvar_values,
                 name="CVaR 95%",
-                marker_color='rgba(255, 159, 64, 0.6)',
+                marker_color='rgba(255, 152, 0, 0.6)',
                 text=[f"{c:.1f}%" for c in cvar_values],
                 textposition='auto'
             ),
@@ -1349,7 +1524,7 @@ class EnhancedStressTestEngine:
                     y=sample_drawdowns,
                     name=result["scenario_name"],
                     boxpoints=False,
-                    marker_color='rgba(55, 128, 191, 0.7)'
+                    marker_color='rgba(41, 98, 255, 0.7)'
                 ),
                 row=2, col=1
             )
@@ -1367,7 +1542,7 @@ class EnhancedStressTestEngine:
                 marker=dict(
                     size=15,
                     color=returns,
-                    colorscale='RdYlGn_r',
+                    colorscale='RdBu_r',
                     showscale=True,
                     colorbar=dict(title="Loss %")
                 ),
@@ -1383,17 +1558,19 @@ class EnhancedStressTestEngine:
             showlegend=True,
             template="plotly_white",
             title_text="Stress Test Scenario Comparison Analysis",
-            title_font_size=16
+            title_font_size=16,
+            title_font_color="#1a237e",
+            font_color="#424242"
         )
         
-        fig.update_xaxes(title_text="Scenario", row=1, col=1, tickangle=45)
-        fig.update_yaxes(title_text="Expected Loss (%)", row=1, col=1)
-        fig.update_xaxes(title_text="Scenario", row=1, col=2, tickangle=45)
-        fig.update_yaxes(title_text="Value (%)", row=1, col=2)
-        fig.update_xaxes(title_text="Scenario", row=2, col=1, tickangle=45)
-        fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1)
-        fig.update_xaxes(title_text="Risk (Volatility %)", row=2, col=2)
-        fig.update_yaxes(title_text="Return/Loss (%)", row=2, col=2)
+        fig.update_xaxes(title_text="Scenario", row=1, col=1, tickangle=45, title_font_color="#424242")
+        fig.update_yaxes(title_text="Expected Loss (%)", row=1, col=1, title_font_color="#424242")
+        fig.update_xaxes(title_text="Scenario", row=1, col=2, tickangle=45, title_font_color="#424242")
+        fig.update_yaxes(title_text="Value (%)", row=1, col=2, title_font_color="#424242")
+        fig.update_xaxes(title_text="Scenario", row=2, col=1, tickangle=45, title_font_color="#424242")
+        fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1, title_font_color="#424242")
+        fig.update_xaxes(title_text="Risk (Volatility %)", row=2, col=2, title_font_color="#424242")
+        fig.update_yaxes(title_text="Return/Loss (%)", row=2, col=2, title_font_color="#424242")
         
         return fig
     
@@ -1430,11 +1607,11 @@ class EnhancedStressTestEngine:
         
         # Severity color mapping
         severity_colors = {
-            "Extreme": "#FF0000",
-            "Severe": "#FF6B6B",
-            "High": "#FFA500",
-            "Moderate": "#FFD700",
-            "Mild": "#90EE90"
+            "Extreme": "#d32f2f",
+            "Severe": "#f57c00",
+            "High": "#fbc02d",
+            "Moderate": "#388e3c",
+            "Mild": "#1976d2"
         }
         
         fig = go.Figure()
@@ -1448,7 +1625,7 @@ class EnhancedStressTestEngine:
                 mode='markers',
                 marker=dict(
                     size=df_sev["Duration"] / 10,
-                    color=severity_colors.get(severity, "#CCCCCC"),
+                    color=severity_colors.get(severity, "#757575"),
                     line=dict(width=2, color='DarkSlateGrey')
                 ),
                 name=severity,
@@ -1458,11 +1635,13 @@ class EnhancedStressTestEngine:
         
         fig.update_layout(
             title="Historical Financial Crises Timeline",
+            title_font_color="#1a237e",
             xaxis_title="Date",
             yaxis_title="Crisis Event",
             height=600,
             template="plotly_white",
             showlegend=True,
+            font_color="#424242",
             xaxis=dict(
                 rangeselector=dict(
                     buttons=list([
@@ -1486,15 +1665,16 @@ class EnhancedStressTestEngine:
 
 def create_var_analysis_tab():
     """Create comprehensive VaR analysis tab"""
-    st.subheader("🎲 Advanced Value at Risk (VaR) & Expected Shortfall (ES) Analysis")
+    st.markdown('<div class="section-header">🎲 Advanced Value at Risk (VaR) & Expected Shortfall (ES) Analysis</div>', unsafe_allow_html=True)
     
     if "portfolio_returns" not in st.session_state:
-        st.warning("Please run portfolio optimization first to generate portfolio returns.")
+        st.markdown('<div class="warning-card">⚠️ Please run portfolio optimization first to generate portfolio returns.</div>', unsafe_allow_html=True)
         return
     
     portfolio_returns = st.session_state["portfolio_returns"]
     
     # Configuration
+    st.markdown('<div class="subsection-header">📊 Configuration Parameters</div>', unsafe_allow_html=True)
     col_config1, col_config2, col_config3, col_config4 = st.columns(4)
     
     with col_config1:
@@ -1546,7 +1726,7 @@ def create_var_analysis_tab():
             primary_result = var_engine.extreme_value_var(confidence_level)
     
     # Display key metrics
-    st.markdown("### 📊 Key Risk Metrics")
+    st.markdown('<div class="subsection-header">📈 Key Risk Metrics</div>', unsafe_allow_html=True)
     
     col_metric1, col_metric2, col_metric3, col_metric4 = st.columns(4)
     
@@ -1578,7 +1758,7 @@ def create_var_analysis_tab():
         st.metric("Tail Risk (CVaR - VaR)", f"{tail_risk:.2f}%")
     
     # VaR Comparison Table
-    st.markdown("### 📈 VaR Method Comparison")
+    st.markdown('<div class="subsection-header">📋 VaR Method Comparison</div>', unsafe_allow_html=True)
     
     display_comparison = var_comparison_df[["Method", "VaR_1day_pct", "CVaR_pct", "Confidence"]].copy()
     display_comparison["VaR_1day_pct"] = display_comparison["VaR_1day_pct"].apply(
@@ -1590,7 +1770,7 @@ def create_var_analysis_tab():
     
     st.dataframe(
         display_comparison.style.apply(
-            lambda x: ['background: #ffeaa7' if 'Historical' in x['Method'] else '' for i in x],
+            lambda x: ['background: #e8eaf6' if 'Historical' in x['Method'] else '' for i in x],
             axis=1
         ),
         use_container_width=True,
@@ -1598,7 +1778,7 @@ def create_var_analysis_tab():
     )
     
     # Create and display charts
-    st.markdown("### 📊 Interactive Risk Analysis Charts")
+    st.markdown('<div class="subsection-header">📊 Interactive Risk Analysis Charts</div>', unsafe_allow_html=True)
     
     tab_chart1, tab_chart2, tab_chart3 = st.tabs([
         "VaR Distribution Analysis",
@@ -1633,21 +1813,23 @@ def create_var_analysis_tab():
             y=var_values,
             mode='lines+markers',
             name=f'{holding_period}-day VaR',
-            line=dict(color='red', width=3)
+            line=dict(color='#1a237e', width=3)
         ))
         
         fig_sens.update_layout(
             title=f"VaR Sensitivity to Confidence Level ({holding_period}-day holding)",
+            title_font_color="#1a237e",
             xaxis_title="Confidence Level (%)",
             yaxis_title="VaR (%)",
             template="plotly_white",
+            font_color="#424242",
             height=500
         )
         
         st.plotly_chart(fig_sens, use_container_width=True)
     
     # Stress testing integration
-    st.markdown("### ⚡ Integrated Stress Testing")
+    st.markdown('<div class="subsection-header">⚡ Integrated Stress Testing</div>', unsafe_allow_html=True)
     
     with st.expander("Run Quick Stress Test with Current VaR Parameters", expanded=True):
         col_stress1, col_stress2 = st.columns(2)
@@ -1689,7 +1871,7 @@ def create_var_analysis_tab():
                 1000
             )
             
-            st.markdown("##### Stress Test Results")
+            st.markdown('<div class="subsection-header">📊 Stress Test Results</div>', unsafe_allow_html=True)
             col_res1, col_res2, col_res3 = st.columns(3)
             
             with col_res1:
@@ -1716,10 +1898,10 @@ def create_var_analysis_tab():
 
 def create_enhanced_stress_test_tab():
     """Create enhanced stress testing tab with user-customizable scenarios"""
-    st.subheader("⚠️ Enhanced Stress Testing Laboratory")
+    st.markdown('<div class="section-header">⚠️ Enhanced Stress Testing Laboratory</div>', unsafe_allow_html=True)
     
     if "portfolio_returns" not in st.session_state:
-        st.warning("Please run portfolio optimization first to generate portfolio returns.")
+        st.markdown('<div class="warning-card">⚠️ Please run portfolio optimization first to generate portfolio returns.</div>', unsafe_allow_html=True)
         return
     
     portfolio_returns = st.session_state["portfolio_returns"]
@@ -1729,12 +1911,12 @@ def create_enhanced_stress_test_tab():
     stress_engine = EnhancedStressTestEngine()
     
     # Historical crises timeline
-    st.markdown("### 📜 Historical Financial Crises Timeline")
+    st.markdown('<div class="subsection-header">📜 Historical Financial Crises Timeline</div>', unsafe_allow_html=True)
     timeline_chart = stress_engine.create_historical_crisis_timeline()
     st.plotly_chart(timeline_chart, use_container_width=True)
     
     # Historical stress tests
-    st.markdown("### 📊 Historical Crisis Analysis")
+    st.markdown('<div class="subsection-header">📊 Historical Crisis Analysis</div>', unsafe_allow_html=True)
     
     # Let user select historical crises to analyze
     selected_crises = st.multiselect(
@@ -1778,7 +1960,7 @@ def create_enhanced_stress_test_tab():
             df_historical = pd.DataFrame(historical_results)
             
             # Display metrics
-            st.markdown("##### Historical Crisis Impact on Portfolio")
+            st.markdown('<div class="subsection-header">📈 Historical Crisis Impact on Portfolio</div>', unsafe_allow_html=True)
             col_hist1, col_hist2, col_hist3 = st.columns(3)
             
             avg_return = df_historical["Total Return"].mean()
@@ -1802,18 +1984,19 @@ def create_enhanced_stress_test_tab():
                     "Volatility (Ann.)": "{:.2f}%"
                 }).background_gradient(
                     subset=["Total Return", "Max Drawdown"],
-                    cmap="RdYlGn_r"
+                    cmap="RdBu_r"
                 ),
                 use_container_width=True,
                 height=300
             )
         else:
-            st.warning("No overlapping data found for selected historical crises.")
+            st.markdown('<div class="info-card">ℹ️ No overlapping data found for selected historical crises.</div>', unsafe_allow_html=True)
     
     # Custom scenario builder
-    st.markdown("### 🛠️ Advanced Custom Scenario Builder")
+    st.markdown('<div class="subsection-header">🛠️ Advanced Custom Scenario Builder</div>', unsafe_allow_html=True)
     
     with st.expander("🔧 Build Your Custom Stress Scenario", expanded=True):
+        st.markdown('<div class="card-container">', unsafe_allow_html=True)
         col_scenario1, col_scenario2 = st.columns(2)
         
         with col_scenario1:
@@ -1948,7 +2131,7 @@ def create_enhanced_stress_test_tab():
                 st.session_state.stress_test_results.append(scenario_result)
                 
                 # Display results
-                st.success("✅ Stress test simulation completed!")
+                st.markdown('<div class="success-card">✅ Stress test simulation completed!</div>', unsafe_allow_html=True)
                 
                 col_result1, col_result2, col_result3, col_result4 = st.columns(4)
                 
@@ -1981,7 +2164,7 @@ def create_enhanced_stress_test_tab():
                     )
                 
                 # Show detailed statistics
-                st.markdown("##### 📊 Detailed Statistics")
+                st.markdown('<div class="subsection-header">📊 Detailed Statistics</div>', unsafe_allow_html=True)
                 col_detail1, col_detail2 = st.columns(2)
                 
                 with col_detail1:
@@ -1992,10 +2175,11 @@ def create_enhanced_stress_test_tab():
                     
                     **Simulations Run:** {scenario_result['num_simulations']:,}
                     """)
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Scenario comparison and management
     if "stress_test_results" in st.session_state and st.session_state.stress_test_results:
-        st.markdown("### 📊 Stress Test Scenario Comparison")
+        st.markdown('<div class="subsection-header">📊 Stress Test Scenario Comparison</div>', unsafe_allow_html=True)
         
         # Create comparison chart
         comparison_chart = stress_engine.create_scenario_comparison_chart(
@@ -2004,13 +2188,12 @@ def create_enhanced_stress_test_tab():
         st.plotly_chart(comparison_chart, use_container_width=True)
         
         # Scenario management
-        st.markdown("#### 🗂️ Scenario Management")
+        st.markdown('<div class="subsection-header">🗂️ Scenario Management</div>', unsafe_allow_html=True)
         col_manage1, col_manage2 = st.columns(2)
         
         with col_manage1:
             if st.button("💾 Save Current Scenarios", use_container_width=True):
-                # Save scenarios to session state
-                st.success(f"Saved {len(st.session_state.stress_test_results)} scenarios")
+                st.markdown(f'<div class="success-card">✅ Saved {len(st.session_state.stress_test_results)} scenarios</div>', unsafe_allow_html=True)
         
         with col_manage2:
             if st.button("🗑️ Clear All Scenarios", use_container_width=True):
@@ -2018,7 +2201,7 @@ def create_enhanced_stress_test_tab():
                 st.rerun()
     
     # Quick stress test templates
-    st.markdown("### ⚡ Quick Stress Test Templates")
+    st.markdown('<div class="subsection-header">⚡ Quick Stress Test Templates</div>', unsafe_allow_html=True)
     
     col_template1, col_template2, col_template3 = st.columns(3)
     
@@ -2062,6 +2245,7 @@ def create_enhanced_stress_test_tab():
 
 def main():
     st.markdown('<div class="main-header">⚡ QUANTUM | Advanced Risk Analytics Platform</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-container">', unsafe_allow_html=True)
     
     # Initialize data manager
     dm = EnhancedDataManager()
@@ -2081,10 +2265,10 @@ def main():
         st.session_state.selected_assets_preset = None
     
     with st.sidebar:
-        st.header("🌍 Global Asset Selection")
+        st.markdown('<div class="section-header" style="font-size: 1.4rem; margin-top: 0;">🌍 Global Asset Selection</div>', unsafe_allow_html=True)
         
         # Quick portfolio presets
-        st.subheader("Quick Portfolios")
+        st.markdown('<div class="subsection-header" style="font-size: 1.1rem;">Quick Portfolios</div>', unsafe_allow_html=True)
         col_preset1, col_preset2 = st.columns(2)
         
         with col_preset1:
@@ -2130,13 +2314,13 @@ def main():
         st.divider()
         
         # Data settings
-        st.subheader("Data Settings")
+        st.markdown('<div class="subsection-header" style="font-size: 1.1rem;">Data Settings</div>', unsafe_allow_html=True)
         start_date = st.date_input("Start Date", value=datetime(2018, 1, 1))
         min_data_length = st.slider("Minimum Data Points", 100, 1000, 252,
                                    help="Assets with fewer data points will be removed")
         
         # Risk settings
-        st.subheader("🎯 Risk Parameters")
+        st.markdown('<div class="subsection-header" style="font-size: 1.1rem;">🎯 Risk Parameters</div>', unsafe_allow_html=True)
         
         risk_free_rate = st.number_input(
             "Risk Free Rate (%)", 
@@ -2157,19 +2341,21 @@ def main():
         # Show regional exposure
         if selected_assets:
             exposure = dm.get_regional_exposure(selected_assets)
-            st.subheader("🌐 Regional Exposure")
+            st.markdown('<div class="subsection-header" style="font-size: 1.1rem;">🌐 Regional Exposure</div>', unsafe_allow_html=True)
             for region, pct in exposure.items():
                 st.progress(pct / 100, text=f"{region}: {pct:.1f}%")
         
         st.divider()
         st.caption("Tip: If Streamlit Cloud shows a redacted ModuleNotFoundError, add a requirements.txt with the packages used.")
     
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     if not selected_assets:
-        st.warning("Please select at least one asset from the sidebar.")
+        st.markdown('<div class="warning-card">⚠️ Please select at least one asset from the sidebar.</div>', unsafe_allow_html=True)
         return
     
     if not OPTIMIZATION_AVAILABLE:
-        st.error("⚠️ PyPortfolioOpt is not installed/available. Optimization features will be disabled.")
+        st.markdown('<div class="warning-card">⚠️ PyPortfolioOpt is not installed/available. Optimization features will be disabled.</div>', unsafe_allow_html=True)
         if "_OPT_IMPORT_ERROR" in globals():
             st.info(f"Import detail: {_OPT_IMPORT_ERROR}")
     
@@ -2183,10 +2369,10 @@ def main():
         )
     
     if df_prices is None or df_prices.empty:
-        st.error("❌ No valid data available after alignment. Please select different assets or adjust date range.")
+        st.markdown('<div class="warning-card">❌ No valid data available after alignment. Please select different assets or adjust date range.</div>', unsafe_allow_html=True)
         return
     
-    st.success(f"✅ Data ready for analysis: {len(df_prices)} data points, {len(df_prices.columns)} assets")
+    st.markdown(f'<div class="success-card">✅ Data ready for analysis: {len(df_prices)} data points, {len(df_prices.columns)} assets</div>', unsafe_allow_html=True)
     
     # Create enhanced tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -2200,9 +2386,9 @@ def main():
     
     # --- TAB 1: DATA OVERVIEW ---
     with tab1:
-        st.subheader("📊 Data Overview & Visualization")
+        st.markdown('<div class="section-header">📊 Data Overview & Visualization</div>', unsafe_allow_html=True)
         
-        st.markdown("### 📈 Normalized Price Performance")
+        st.markdown('<div class="subsection-header">📈 Normalized Price Performance</div>', unsafe_allow_html=True)
         normalized = (df_prices / df_prices.iloc[0]) * 100
         
         fig_prices = px.line(
@@ -2213,11 +2399,13 @@ def main():
         fig_prices.update_layout(
             template="plotly_white",
             height=500,
-            hovermode="x unified"
+            hovermode="x unified",
+            title_font_color="#1a237e",
+            font_color="#424242"
         )
         st.plotly_chart(fig_prices, use_container_width=True)
         
-        st.markdown("### 📊 Summary Statistics")
+        st.markdown('<div class="subsection-header">📊 Summary Statistics</div>', unsafe_allow_html=True)
         returns = df_prices.pct_change().dropna()
         returns = returns.loc[:, ~returns.columns.duplicated()]
         col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -2231,9 +2419,9 @@ def main():
     # --- TAB 2: PORTFOLIO OPTIMIZATION ---
     with tab2:
         if not OPTIMIZATION_AVAILABLE:
-            st.warning("Portfolio optimization requires PyPortfolioOpt. Add it to requirements.txt: PyPortfolioOpt")
+            st.markdown('<div class="warning-card">⚠️ Portfolio optimization requires PyPortfolioOpt. Add it to requirements.txt: PyPortfolioOpt</div>', unsafe_allow_html=True)
         else:
-            st.subheader("🎯 Portfolio Construction & Optimization")
+            st.markdown('<div class="section-header">🎯 Portfolio Construction & Optimization</div>', unsafe_allow_html=True)
             
             col_conf1, col_conf2, col_conf3 = st.columns(3)
             with col_conf1:
@@ -2271,13 +2459,13 @@ def main():
                             obj_type = "max_sharpe" if "Sharpe" in strategy else "min_volatility"
                             weights, perf = engine.optimize_mean_variance(obj_type, rf_rate)
                         
-                        st.success("✅ Optimization completed!")
+                        st.markdown('<div class="success-card">✅ Optimization completed!</div>', unsafe_allow_html=True)
                         
                         col_res1, col_res2 = st.columns([1, 1])
                         ticker_map = dm.get_ticker_name_map()
                         
                         with col_res1:
-                            st.subheader("📊 Portfolio Allocation")
+                            st.markdown('<div class="subsection-header">📊 Portfolio Allocation</div>', unsafe_allow_html=True)
                             portfolio_data = []
                             for ticker, weight in weights.items():
                                 if float(weight) > 0.001:
@@ -2291,7 +2479,7 @@ def main():
                             portfolio_df = pd.DataFrame(portfolio_data).sort_values(by="Weight", ascending=False)
                             
                             if portfolio_df.empty:
-                                st.warning("No non-trivial weights returned (all ~0).")
+                                st.markdown('<div class="warning-card">⚠️ No non-trivial weights returned (all ~0).</div>', unsafe_allow_html=True)
                             else:
                                 display_df = portfolio_df[["Asset", "Ticker", "Weight", "Amount ($)"]].copy()
                                 display_df["Weight"] = display_df["Weight"].apply(lambda x: f"{x:.2%}")
@@ -2299,15 +2487,16 @@ def main():
                                 st.dataframe(display_df, use_container_width=True, height=420)
                         
                         with col_res2:
-                            st.subheader("📈 Allocation Chart")
+                            st.markdown('<div class="subsection-header">📈 Allocation Chart</div>', unsafe_allow_html=True)
                             if not portfolio_df.empty:
                                 fig_pie = px.pie(portfolio_df, values="Weight", names="Asset", hole=0.4)
                                 fig_pie.update_traces(textposition="inside", textinfo="percent+label")
-                                fig_pie.update_layout(template="plotly_white", height=420, showlegend=False)
+                                fig_pie.update_layout(template="plotly_white", height=420, showlegend=False,
+                                                     title_font_color="#1a237e", font_color="#424242")
                                 st.plotly_chart(fig_pie, use_container_width=True)
                         
                         st.divider()
-                        st.subheader("🎯 Performance Summary")
+                        st.markdown('<div class="subsection-header">🎯 Performance Summary</div>', unsafe_allow_html=True)
                         m1, m2, m3, m4 = st.columns(4)
                         m1.metric("Expected Return (Ann.)", f"{perf[0]:.2%}")
                         m2.metric("Volatility (Ann.)", f"{perf[1]:.2%}")
@@ -2325,7 +2514,7 @@ def main():
                         st.session_state.weights = weights
                         
                     except Exception as e:
-                        st.error(f"Optimization failed: {e}")
+                        st.markdown(f'<div class="warning-card">❌ Optimization failed: {e}</div>', unsafe_allow_html=True)
     
     # --- TAB 3: ADVANCED VAR/ES ---
     with tab3:
@@ -2337,10 +2526,10 @@ def main():
     
     # --- TAB 5: RISK ANALYTICS ---
     with tab5:
-        st.subheader("🛡️ Risk Analytics")
+        st.markdown('<div class="section-header">🛡️ Risk Analytics</div>', unsafe_allow_html=True)
         
         if "portfolio_returns" not in st.session_state:
-            st.warning("Please run portfolio optimization first.")
+            st.markdown('<div class="warning-card">⚠️ Please run portfolio optimization first.</div>', unsafe_allow_html=True)
         else:
             portfolio_returns = st.session_state.portfolio_returns
             
@@ -2356,7 +2545,7 @@ def main():
                 benchmark_returns=bench_ret
             )
             
-            st.markdown("### 📊 Risk & Performance Metrics")
+            st.markdown('<div class="subsection-header">📊 Risk & Performance Metrics</div>', unsafe_allow_html=True)
             metrics_df = risk_engine.calculate_comprehensive_metrics()
             
             col_met1, col_met2 = st.columns(2)
@@ -2388,15 +2577,15 @@ def main():
     
     # --- TAB 6: CORRELATION ANALYSIS ---
     with tab6:
-        st.subheader("🔗 Correlation Analysis")
+        st.markdown('<div class="section-header">🔗 Correlation Analysis</div>', unsafe_allow_html=True)
         
         returns = df_prices.pct_change().dropna()
         returns = returns.loc[:, ~returns.columns.duplicated()]
         
         if returns.empty or returns.shape[1] < 2:
-            st.warning("Please select at least two assets with sufficient overlapping data.")
+            st.markdown('<div class="warning-card">⚠️ Please select at least two assets with sufficient overlapping data.</div>', unsafe_allow_html=True)
         else:
-            st.markdown("### 📊 Correlation Matrix")
+            st.markdown('<div class="subsection-header">📊 Correlation Matrix</div>', unsafe_allow_html=True)
             corr_matrix = returns.corr()
             
             ticker_map = dm.get_ticker_name_map()
@@ -2416,9 +2605,11 @@ def main():
                 template="plotly_white",
                 height=700,
                 title="Asset Correlation Matrix",
+                title_font_color="#1a237e",
                 xaxis_title="Assets",
                 yaxis_title="Assets",
-                xaxis=dict(tickangle=-45)
+                xaxis=dict(tickangle=-45),
+                font_color="#424242"
             )
             st.plotly_chart(fig_corr, use_container_width=True)
 
