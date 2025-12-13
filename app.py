@@ -914,30 +914,44 @@ class EnhancedChartFactory:
         )
         return fig
 
-@staticmethod
-def plot_alignment_heatmap(df_prices: pd.DataFrame):
-    availability = pd.DataFrame(index=df_prices.index, columns=df_prices.columns)
-    for col in df_prices.columns:
-        availability[col] = df_prices[col].notna().astype(int)
+    @staticmethod
+    def plot_alignment_heatmap(df_prices: pd.DataFrame, max_points: int = 900) -> go.Figure:
+        """Data availability / alignment heatmap.
 
-    # Use Graph Objects to avoid Plotly Express/Narwhals duplicate-column constraints
-    fig = go.Figure(data=go.Heatmap(
-        z=availability.T.values,
-        x=availability.index,
-        y=availability.columns,
-        colorscale=[[0, "red"], [1, "green"]],
-        zmin=0, zmax=1,
-        hovertemplate="Date: %{x}<br>Asset: %{y}<br>Available: %{z}<extra></extra>"
-    ))
-    fig.update_layout(
-        title="Data Availability Heatmap (Green = Available)",
-        height=400,
-        template="plotly_white",
-        xaxis_title="Date",
-        yaxis_title="Asset"
-    )
-    return fig
+        Uses plotly.graph_objects (not px.imshow) to avoid Narwhals DuplicateError.
+        If the dataset is very long, it is downsampled (weekly) for faster rendering.
+        """
+        if df_prices is None or df_prices.empty:
+            return go.Figure()
 
+        avail = df_prices.notna()
+
+        if len(avail) > max_points:
+            avail = avail.resample("W").max()
+
+        z = avail.T.astype(int).values
+        x = avail.index
+        y = avail.columns.tolist()
+
+        fig = go.Figure(
+            data=go.Heatmap(
+                z=z,
+                x=x,
+                y=y,
+                colorscale=[[0.0, "red"], [1.0, "green"]],
+                zmin=0,
+                zmax=1,
+                hovertemplate="Date: %{x}<br>Asset: %{y}<br>Available: %{z}<extra></extra>",
+            )
+        )
+        fig.update_layout(
+            title="Data Availability Heatmap (Green = Available)",
+            xaxis_title="Date",
+            yaxis_title="Asset",
+            template="plotly_white",
+            height=420,
+        )
+        return fig
 
 # ==============================================================================
 # 10) MAIN APPLICATION
