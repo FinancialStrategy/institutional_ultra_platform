@@ -6,7 +6,7 @@ plotly
 seaborn
 scipy
 statsmodels
-PyPortfolioOpt
+PyPortfolioOpt==1.5.5
 cvxpy
 matplotlib
 scikit-learn
