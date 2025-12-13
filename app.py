@@ -1282,17 +1282,145 @@ def tab_portfolio_optimization(prices: pd.DataFrame, bench: pd.Series):
     pe = PortfolioEngine(prices)
 
     colA, colB, colC, colD = st.columns([1,1,1,1])
-    rf = colA.number_input("Risk-free rate (annual)", min_value=0.0, max_value=0.30, value=0.04, step=0.005, format="%.3f")
-    mv_objective = colB.selectbox("MV Objective", ["max_sharpe", "min_volatility", "max_quadratic_utility"], index=0)
-    l2 = colC.slider("L2 Regularization (gamma)", 0.0, 2.0, 0.0, 0.05)
-    bl_tau = colD.slider("BL Tau (confidence scaling)", 0.01, 0.30, 0.05, 0.01)
+    rf = colA.number_input("Risk-free rate (annual)", min_value=0.0, max_value=0.30, value=0.04, step=0.005, format="%.3f", key="opt_rf_annual")
+    mv_objective = colB.selectbox("MV Objective", ["max_sharpe", "min_volatility", "max_quadratic_utility"], index=0, key="opt_mv_objective")
+    l2 = colC.slider("L2 Regularization (gamma)", 0.0, 2.0, 0.0, 0.05, key="opt_l2_gamma")
+    bl_tau = colD.slider("BL Tau (confidence scaling)", 0.01, 0.30, 0.05, 0.01, key="opt_bl_tau")
 
     st.markdown('<div class="subsection-header">Run Optimization</div>', unsafe_allow_html=True)
     run_cols = st.columns([1,1,1,1])
-    do_equal = run_cols[0].button("Run Equal Weight")
-    do_mv = run_cols[1].button("Run Mean-Variance (MV)")
-    do_hrp = run_cols[2].button("Run HRP")
-    do_bl = run_cols[3].button("Run Black-Litterman (BL)")
+    do_equal = run_cols[0].button("Run Equal Weight", key="opt_run_equal")
+    do_mv = run_cols[1].button("Run Mean-Variance (MV)", key="opt_run_mv")
+    do_hrp = run_cols[2].button("Run HRP", key="opt_run_hrp")
+    do_bl = run_cols[3].button("Run Black-Litterman (BL)", key="opt_run_bl")
+
+
+    st.markdown('<div class="subsection-header">🧮 PyPortfolioOpt Risk Model Matrix (risk_models.risk_matrix)</div>', unsafe_allow_html=True)
+    if not OPTIMIZATION_AVAILABLE:
+        st.info("PyPortfolioOpt is not available, so risk_models.risk_matrix diagnostics are disabled.")
+    else:
+        with st.expander("Covariance / Correlation Matrix + Round Percentage (Donut) Chart", expanded=False):
+            rm_col1, rm_col2, rm_col3, rm_col4 = st.columns([1,1,1,1])
+
+            rm_method = rm_col1.selectbox(
+                "Method",
+                [
+                    "sample_cov",
+                    "semicovariance",
+                    "exp_cov",
+                    "ledoit_wolf",
+                    "ledoit_wolf_constant_variance",
+                    "ledoit_wolf_single_factor",
+                    "ledoit_wolf_constant_correlation",
+                    "oracle_approximating",
+                ],
+                index=0,
+                key="opt_risk_matrix_method"
+            )
+
+            rm_view = rm_col2.selectbox("View", ["Correlation", "Covariance"], index=0, key="opt_risk_matrix_view")
+            rm_freq = rm_col3.number_input("Frequency (annualization)", min_value=1, max_value=3650, value=252, step=1, key="opt_risk_matrix_freq")
+            rm_span = rm_col4.slider("exp_cov span", 10, 500, 180, 5, key="opt_risk_matrix_span")
+
+            rm_returns_data = st.checkbox("Input is returns (returns_data=True)", value=False, key="opt_risk_matrix_returns_data")
+
+            rm_input = prices if not rm_returns_data else prices.pct_change().dropna()
+
+            rm_kwargs = {"frequency": int(rm_freq)}
+            if rm_method == "exp_cov":
+                rm_kwargs["span"] = int(rm_span)
+
+            try:
+                S_rm = risk_models.risk_matrix(rm_input, method=rm_method, returns_data=rm_returns_data, **rm_kwargs)
+                if not isinstance(S_rm, pd.DataFrame):
+                    S_rm = pd.DataFrame(S_rm, index=prices.columns, columns=prices.columns)
+            except Exception as e:
+                st.warning(f"Risk matrix computation failed: {e}")
+            else:
+                # Build display matrix
+                if rm_view == "Correlation":
+                    S = S_rm.values.astype(float)
+                    d = np.sqrt(np.clip(np.diag(S), 1e-18, None))
+                    corr = S / np.outer(d, d)
+                    corr = np.clip(corr, -1.0, 1.0)
+                    M = pd.DataFrame(corr, index=S_rm.index, columns=S_rm.columns)
+                    zmin, zmax = -1.0, 1.0
+                    colorscale = "RdBu_r"
+                    title = f"Correlation Matrix (derived from {rm_method})"
+                else:
+                    M = S_rm.copy()
+                    zmin, zmax = None, None
+                    colorscale = "Blues"
+                    title = f"Covariance Matrix (annualized, {rm_method})"
+
+                labels = [TICKER_NAME_MAP.get(t, t) for t in M.columns]
+                fig_hm = go.Figure(data=go.Heatmap(
+                    z=M.values,
+                    x=labels,
+                    y=labels,
+                    colorscale=colorscale,
+                    zmin=zmin,
+                    zmax=zmax,
+                    hovertemplate="X: %{x}<br>Y: %{y}<br>Value: %{z:.6f}<extra></extra>"
+                ))
+                fig_hm.update_layout(
+                    height=650,
+                    template="plotly_white",
+                    title=title,
+                    title_font_color="#1a237e",
+                    xaxis_tickangle=-45,
+                    font_color="#424242"
+                )
+                st.plotly_chart(fig_hm, use_container_width=True)
+
+                st.markdown('<div class="subsection-header">🟣 Round Percentage Chart (Risk Contribution)</div>', unsafe_allow_html=True)
+
+                cov_for_rc = S_rm.copy()
+                w_last = st.session_state.get("last_weights", None)
+
+                try:
+                    if isinstance(w_last, dict) and len(w_last) > 0:
+                        wv = pd.Series(w_last).reindex(cov_for_rc.columns).fillna(0.0).astype(float)
+                        w_label = f"using last strategy weights ({st.session_state.get('last_strategy','')})"
+                    else:
+                        wv = pd.Series(1.0 / len(cov_for_rc.columns), index=cov_for_rc.columns).astype(float)
+                        w_label = "using equal weights (no optimized weights yet)"
+
+                    port_var = float(wv.values @ cov_for_rc.values @ wv.values)
+                    if not np.isfinite(port_var) or port_var <= 0:
+                        raise ValueError("Non-positive portfolio variance (cannot compute contributions).")
+
+                    mc = cov_for_rc.values @ wv.values
+                    rc = wv.values * mc / port_var
+                    rc = np.clip(rc, 0, None)
+                    if rc.sum() <= 0:
+                        raise ValueError("Zero/negative total contribution.")
+
+                    rc_pct = rc / rc.sum() * 100.0
+                    rc_df = pd.DataFrame({"Asset": cov_for_rc.columns, "RiskContributionPct": rc_pct})
+                    rc_df["AssetName"] = rc_df["Asset"].map(lambda t: TICKER_NAME_MAP.get(t, t))
+                    rc_df = rc_df.sort_values("RiskContributionPct", ascending=False)
+
+                    fig_donut = px.pie(rc_df, values="RiskContributionPct", names="AssetName", hole=0.45)
+                    fig_donut.update_traces(textposition="inside", textinfo="percent+label")
+                    fig_donut.update_layout(
+                        height=520,
+                        template="plotly_white",
+                        title=f"Risk Contribution (% of portfolio variance) — {w_label}",
+                        title_font_color="#1a237e",
+                        showlegend=False,
+                        font_color="#424242"
+                    )
+                    st.plotly_chart(fig_donut, use_container_width=True)
+
+                    with st.expander("Show risk contribution table", expanded=False):
+                        show_tbl = rc_df.copy()
+                        show_tbl["RiskContributionPct"] = show_tbl["RiskContributionPct"].map(lambda x: f"{x:.2f}%")
+                        st.dataframe(show_tbl[["AssetName", "Asset", "RiskContributionPct"]], use_container_width=True)
+
+                except Exception as e:
+                    st.info(f"Risk contribution donut unavailable: {e}")
+
 
     # BL views from session (if user created in BL tab)
     views_payload = st.session_state.get("bl_views_payload", None)
