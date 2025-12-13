@@ -1949,7 +1949,7 @@ def create_advanced_performance_tab():
         with col_bench1:
             st.metric("Beta", f"{all_metrics.get('Beta', 0):.2f}")
         with col_bench2:
-            st.metric("Alpha", f"{all_metrics.get('Jensen\'s Alpha', 0):.2%}")
+            st.metric("Alpha", f"{all_metrics.get('Jensen\\'s Alpha', 0):.2%}")
         with col_bench3:
             st.metric("Information Ratio", f"{all_metrics.get('Information Ratio', 0):.2f}")
         with col_bench4:
