@@ -12,6 +12,7 @@ from typing import List, Dict, Tuple, Optional
 warnings.filterwarnings("ignore")
 
 # --- 1. CONFIGURATION & STYLING ---
+# THIS MUST BE THE FIRST STREAMLIT COMMAND
 st.set_page_config(
     page_title="QUANTUM | Global Institutional Terminal",
     layout="wide",
@@ -91,6 +92,31 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
+
+# --- TRY TO IMPORT OPTIMIZATION LIBRARIES WITH FALLBACK ---
+try:
+    from pypfopt.efficient_frontier import EfficientFrontier
+    from pypfopt import risk_models
+    from pypfopt import expected_returns
+    from pypfopt.hierarchical_risk_parity import HRPOpt
+    from pypfopt import objective_functions
+    
+    # Try to import BlackLitterman
+    try:
+        from pypfopt.black_litterman import BlackLittermanModel
+        BLACK_LITTERMAN_AVAILABLE = True
+    except ImportError:
+        try:
+            from pypfopt import BlackLittermanModel
+            BLACK_LITTERMAN_AVAILABLE = True
+        except ImportError:
+            BLACK_LITTERMAN_AVAILABLE = False
+    
+    OPTIMIZATION_AVAILABLE = True
+except ImportError as e:
+    st.warning(f"⚠️ PyPortfolioOpt not available: {e}")
+    OPTIMIZATION_AVAILABLE = False
+    BLACK_LITTERMAN_AVAILABLE = False
 
 # --- 2. ENHANCED DATA MANAGER WITH GLOBAL ASSETS & ROBUST DATA ALIGNMENT ---
 class EnhancedDataManager:
@@ -275,17 +301,16 @@ class EnhancedDataManager:
         
         try:
             # Download data
-            with st.spinner(f"📥 Downloading data for {len(all_tickers)} instruments..."):
-                data = yf.download(
-                    all_tickers,
-                    start=start_date,
-                    end=end_date,
-                    group_by='ticker',
-                    auto_adjust=True,
-                    threads=True,
-                    progress=False,
-                    timeout=30
-                )
+            data = yf.download(
+                all_tickers,
+                start=start_date,
+                end=end_date,
+                group_by='ticker',
+                auto_adjust=True,
+                threads=True,
+                progress=False,
+                timeout=30
+            )
             
             # Extract closing prices
             prices_dict = {}
@@ -344,21 +369,18 @@ class EnhancedDataManager:
             
             df_filtered = df_raw[valid_tickers]
             
-            # Step 2: Check for date alignment issues
-            st.info(f"🔄 Aligning time series... Original shape: {df_filtered.shape}")
-            
-            # Step 3: Forward fill then backward fill to handle missing values
+            # Step 2: Forward fill then backward fill to handle missing values
             df_filled = df_filtered.ffill().bfill()
             
-            # Step 4: Drop any remaining rows with NA
+            # Step 3: Drop any remaining rows with NA
             df_clean = df_filled.dropna()
             
-            # Step 5: Verify we have enough data after cleaning
+            # Step 4: Verify we have enough data after cleaning
             if len(df_clean) < min_data_length:
                 st.error(f"Insufficient data after cleaning. Only {len(df_clean)} data points available.")
                 return pd.DataFrame(), pd.Series(), {}
             
-            # Step 6: Separate benchmark from portfolio assets
+            # Step 5: Separate benchmark from portfolio assets
             portfolio_tickers = [t for t in selected_tickers if t in df_clean.columns]
             benchmark_data = pd.Series()
             
@@ -484,31 +506,6 @@ class EnhancedDataManager:
                         use_container_width=True
                     )
 
-# --- TRY TO IMPORT OPTIMIZATION LIBRARIES WITH FALLBACK ---
-try:
-    from pypfopt.efficient_frontier import EfficientFrontier
-    from pypfopt import risk_models
-    from pypfopt import expected_returns
-    from pypfopt.hierarchical_risk_parity import HRPOpt
-    from pypfopt import objective_functions
-    
-    # Try to import BlackLitterman
-    try:
-        from pypfopt.black_litterman import BlackLittermanModel
-        BLACK_LITTERMAN_AVAILABLE = True
-    except ImportError:
-        try:
-            from pypfopt import BlackLittermanModel
-            BLACK_LITTERMAN_AVAILABLE = True
-        except ImportError:
-            BLACK_LITTERMAN_AVAILABLE = False
-    
-    OPTIMIZATION_AVAILABLE = True
-except ImportError as e:
-    st.error(f"⚠️ PyPortfolioOpt not available: {e}")
-    OPTIMIZATION_AVAILABLE = False
-    BLACK_LITTERMAN_AVAILABLE = False
-
 # --- 3. ENHANCED OPTIMIZATION ENGINE WITH DATA VALIDATION ---
 class EnhancedOptimizationEngine:
     def __init__(self, df_prices: pd.DataFrame):
@@ -526,8 +523,12 @@ class EnhancedOptimizationEngine:
         
         self.df = df_prices
         self.returns = df_prices.pct_change().dropna()
-        self.mu = expected_returns.mean_historical_return(self.df)
-        self.S = risk_models.sample_cov(self.df)
+        if OPTIMIZATION_AVAILABLE:
+            self.mu = expected_returns.mean_historical_return(self.df)
+            self.S = risk_models.sample_cov(self.df)
+        else:
+            self.mu = None
+            self.S = None
         self.num_assets = len(df_prices.columns)
     
     def _validate_data(self, df: pd.DataFrame):
@@ -553,6 +554,10 @@ class EnhancedOptimizationEngine:
     
     def optimize_mean_variance(self, objective="max_sharpe", risk_free_rate=0.04, gamma=None):
         """Robust mean-variance optimization."""
+        if not OPTIMIZATION_AVAILABLE:
+            st.error("Optimization not available. Install PyPortfolioOpt.")
+            return None, None
+            
         try:
             ef = EfficientFrontier(self.mu, self.S)
             
@@ -579,13 +584,17 @@ class EnhancedOptimizationEngine:
             # Fallback to equal weights
             equal_weight = 1.0 / self.num_assets
             weights = {asset: equal_weight for asset in self.df.columns}
-            ret = self.mu.mean()
-            vol = np.sqrt(np.diag(self.S).mean())
+            ret = self.returns.mean().mean() * 252 if self.mu is None else self.mu.mean()
+            vol = self.returns.std().mean() * np.sqrt(252) if self.S is None else np.sqrt(np.diag(self.S).mean())
             sharpe = (ret - risk_free_rate) / vol if vol > 0 else 0
             return weights, (ret, vol, sharpe)
     
     def optimize_hrp(self):
         """Hierarchical Risk Parity optimization with error handling."""
+        if not OPTIMIZATION_AVAILABLE:
+            st.error("HRP optimization not available. Install PyPortfolioOpt.")
+            return None, None
+            
         try:
             # Ensure we have enough data
             if len(self.returns) < 100:
@@ -788,6 +797,9 @@ class EnhancedChartFactory:
     @staticmethod
     def plot_efficient_frontier(mu, S, optimal_weights=None):
         """Plot efficient frontier with optimal portfolio."""
+        if mu is None or S is None:
+            return go.Figure()
+            
         n_samples = 5000
         w = np.random.dirichlet(np.ones(len(mu)), n_samples)
         rets = w.dot(mu)
@@ -838,27 +850,6 @@ class EnhancedChartFactory:
             yaxis_tickformat=".1%",
             template="plotly_white",
             height=400
-        )
-        return fig
-    
-    @staticmethod
-    def plot_alignment_heatmap(df_prices: pd.DataFrame):
-        """Plot heatmap showing data availability and alignment."""
-        # Create availability matrix
-        availability = pd.DataFrame(index=df_prices.index, columns=df_prices.columns)
-        for col in df_prices.columns:
-            availability[col] = df_prices[col].notna().astype(int)
-        
-        fig = px.imshow(
-            availability.T,
-            labels=dict(x="Date", y="Asset", color="Available"),
-            color_continuous_scale=["red", "green"],
-            aspect="auto"
-        )
-        fig.update_layout(
-            title="Data Availability Heatmap (Green = Available)",
-            height=400,
-            template="plotly_white"
         )
         return fig
 
@@ -924,11 +915,6 @@ def main():
         st.warning("Please select at least one asset from the sidebar.")
         return
     
-    # Check if optimization libraries are available
-    if not OPTIMIZATION_AVAILABLE:
-        st.error("⚠️ PyPortfolioOpt is not installed. Please install it with: pip install PyPortfolioOpt")
-        st.info("Running in data analysis mode only (optimization features disabled)")
-    
     # Fetch and align data
     with st.spinner("🔄 Fetching and aligning data..."):
         df_prices, benchmark_data, data_report = dm.fetch_and_align_data(
@@ -976,11 +962,6 @@ def main():
             hovermode="x unified"
         )
         st.plotly_chart(fig_prices, use_container_width=True)
-        
-        # Show data alignment heatmap
-        st.markdown("### 🔍 Data Availability Heatmap")
-        fig_heatmap = EnhancedChartFactory.plot_alignment_heatmap(df_prices)
-        st.plotly_chart(fig_heatmap, use_container_width=True)
         
         # Show summary statistics
         st.markdown("### 📊 Summary Statistics")
@@ -1062,68 +1043,76 @@ def main():
                             obj_type = "max_sharpe" if "Sharpe" in strategy else "min_volatility"
                             weights, perf = engine.optimize_mean_variance(obj_type, rf_rate)
                         
-                        # Display results
-                        st.success("✅ Optimization completed!")
-                        
-                        # Portfolio allocation
-                        col_res1, col_res2 = st.columns([1, 1])
-                        
-                        with col_res1:
-                            st.subheader("📊 Portfolio Allocation")
-                            ticker_map = dm.get_ticker_name_map()
-                            portfolio_data = []
+                        if weights and perf:
+                            # Display results
+                            st.success("✅ Optimization completed!")
                             
-                            for ticker, weight in weights.items():
-                                if weight > 0.001:
-                                    portfolio_data.append({
-                                        "Asset": ticker_map.get(ticker, ticker),
-                                        "Weight": weight,
-                                        "Amount ($)": weight * amount
-                                    })
+                            # Portfolio allocation
+                            col_res1, col_res2 = st.columns([1, 1])
                             
-                            portfolio_df = pd.DataFrame(portfolio_data).sort_values(by="Weight", ascending=False)
+                            with col_res1:
+                                st.subheader("📊 Portfolio Allocation")
+                                ticker_map = dm.get_ticker_name_map()
+                                portfolio_data = []
+                                
+                                for ticker, weight in weights.items():
+                                    if weight > 0.001:
+                                        portfolio_data.append({
+                                            "Asset": ticker_map.get(ticker, ticker),
+                                            "Weight": weight,
+                                            "Amount ($)": weight * amount
+                                        })
+                                
+                                portfolio_df = pd.DataFrame(portfolio_data).sort_values(by="Weight", ascending=False)
+                                
+                                display_df = portfolio_df[['Asset', 'Weight', 'Amount ($)']].copy()
+                                display_df['Weight'] = display_df['Weight'].apply(lambda x: f"{x:.2%}")
+                                display_df['Amount ($)'] = display_df['Amount ($)'].apply(lambda x: f"${x:,.0f}")
+                                st.dataframe(display_df, use_container_width=True, height=400)
                             
-                            display_df = portfolio_df[['Asset', 'Weight', 'Amount ($)']].copy()
-                            display_df['Weight'] = display_df['Weight'].apply(lambda x: f"{x:.2%}")
-                            display_df['Amount ($)'] = display_df['Amount ($)'].apply(lambda x: f"${x:,.0f}")
-                            st.dataframe(display_df, use_container_width=True, height=400)
-                        
-                        with col_res2:
-                            st.subheader("📈 Allocation Chart")
-                            if not portfolio_df.empty:
-                                fig_pie = px.pie(
-                                    portfolio_df, 
-                                    values='Weight', 
-                                    names='Asset', 
-                                    hole=0.4
-                                )
-                                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                                fig_pie.update_layout(
-                                    template="plotly_white", 
-                                    height=400,
-                                    showlegend=False
-                                )
-                                st.plotly_chart(fig_pie, use_container_width=True)
-                        
-                        # Performance metrics
-                        st.divider()
-                        st.subheader("🎯 Performance Summary")
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Expected Return (Ann.)", f"{perf[0]:.2%}")
-                        m2.metric("Volatility (Ann.)", f"{perf[1]:.2%}")
-                        m3.metric("Sharpe Ratio", f"{perf[2]:.2f}")
-                        
-                        # Calculate drawdown
-                        portfolio_returns_series = engine.returns.dot(pd.Series(weights))
-                        cum_returns = (1 + portfolio_returns_series).cumprod()
-                        running_max = cum_returns.cummax()
-                        drawdown = (cum_returns - running_max) / running_max
-                        max_dd = drawdown.min()
-                        m4.metric("Max Drawdown", f"{max_dd:.2%}")
-                        
-                        # Store portfolio returns for other tabs
-                        st.session_state.portfolio_returns = portfolio_returns_series
-                        st.session_state.weights = weights
+                            with col_res2:
+                                st.subheader("📈 Allocation Chart")
+                                if not portfolio_df.empty:
+                                    fig_pie = px.pie(
+                                        portfolio_df, 
+                                        values='Weight', 
+                                        names='Asset', 
+                                        hole=0.4
+                                    )
+                                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                                    fig_pie.update_layout(
+                                        template="plotly_white", 
+                                        height=400,
+                                        showlegend=False
+                                    )
+                                    st.plotly_chart(fig_pie, use_container_width=True)
+                            
+                            # Performance metrics
+                            st.divider()
+                            st.subheader("🎯 Performance Summary")
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("Expected Return (Ann.)", f"{perf[0]:.2%}")
+                            m2.metric("Volatility (Ann.)", f"{perf[1]:.2%}")
+                            m3.metric("Sharpe Ratio", f"{perf[2]:.2f}")
+                            
+                            # Calculate drawdown
+                            portfolio_returns_series = engine.returns.dot(pd.Series(weights))
+                            cum_returns = (1 + portfolio_returns_series).cumprod()
+                            running_max = cum_returns.cummax()
+                            drawdown = (cum_returns - running_max) / running_max
+                            max_dd = drawdown.min()
+                            m4.metric("Max Drawdown", f"{max_dd:.2%}")
+                            
+                            # Store portfolio returns for other tabs
+                            st.session_state.portfolio_returns = portfolio_returns_series
+                            st.session_state.weights = weights
+                            
+                            # Efficient Frontier
+                            st.divider()
+                            st.subheader("📊 Efficient Frontier Analysis")
+                            weights_array = np.array([weights.get(col, 0) for col in df_prices.columns])
+                            fig_ef = EnhancedChartFactory.plot_efficient_frontier(engine.mu, engine.S, weights_array)
+                            st.plotly_chart(fig_ef, use_container_width=True)
                         
                     except Exception as e:
                         st.error(f"Optimization failed: {e}")
