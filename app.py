@@ -98,8 +98,15 @@ try:
     from pypfopt.efficient_frontier import EfficientFrontier
     from pypfopt import risk_models
     from pypfopt import expected_returns
-    from pypfopt.hierarchical_risk_parity import HRPOpt
     from pypfopt import objective_functions
+    
+    # Try to import hierarchical_risk_parity
+    try:
+        from pypfopt.hierarchical_risk_parity import HRPOpt
+        HRP_AVAILABLE = True
+    except ImportError:
+        HRP_AVAILABLE = False
+        st.warning("⚠️ HRP optimization not available. Install latest PyPortfolioOpt for full features.")
     
     # Try to import BlackLitterman
     try:
@@ -114,8 +121,9 @@ try:
     
     OPTIMIZATION_AVAILABLE = True
 except ImportError as e:
-    st.warning(f"⚠️ PyPortfolioOpt not available: {e}")
+    st.warning(f"⚠️ PyPortfolioOpt not fully available: {e}")
     OPTIMIZATION_AVAILABLE = False
+    HRP_AVAILABLE = False
     BLACK_LITTERMAN_AVAILABLE = False
 
 # --- 2. ENHANCED DATA MANAGER WITH GLOBAL ASSETS & ROBUST DATA ALIGNMENT ---
@@ -354,7 +362,21 @@ class EnhancedDataManager:
             # Create DataFrame from dictionary
             df_raw = pd.DataFrame(prices_dict)
             
-            # Step 1: Remove tickers with insufficient data
+            # Step 1: Remove duplicate column names (FIX FOR NARWHALS ERROR)
+            # This happens when the same ticker appears multiple times
+            seen = set()
+            unique_cols = []
+            for col in df_raw.columns:
+                if col not in seen:
+                    seen.add(col)
+                    unique_cols.append(col)
+                else:
+                    # Handle duplicate columns
+                    st.warning(f"Removing duplicate column: {col}")
+            
+            df_raw = df_raw[unique_cols]
+            
+            # Step 2: Remove tickers with insufficient data
             valid_tickers = []
             for ticker in df_raw.columns:
                 non_na_count = df_raw[ticker].count()
@@ -369,18 +391,18 @@ class EnhancedDataManager:
             
             df_filtered = df_raw[valid_tickers]
             
-            # Step 2: Forward fill then backward fill to handle missing values
+            # Step 3: Forward fill then backward fill to handle missing values
             df_filled = df_filtered.ffill().bfill()
             
-            # Step 3: Drop any remaining rows with NA
+            # Step 4: Drop any remaining rows with NA
             df_clean = df_filled.dropna()
             
-            # Step 4: Verify we have enough data after cleaning
+            # Step 5: Verify we have enough data after cleaning
             if len(df_clean) < min_data_length:
                 st.error(f"Insufficient data after cleaning. Only {len(df_clean)} data points available.")
                 return pd.DataFrame(), pd.Series(), {}
             
-            # Step 5: Separate benchmark from portfolio assets
+            # Step 6: Separate benchmark from portfolio assets
             portfolio_tickers = [t for t in selected_tickers if t in df_clean.columns]
             benchmark_data = pd.Series()
             
@@ -479,32 +501,6 @@ class EnhancedDataManager:
                     }).applymap(color_missing, subset=['Missing %'])
                     
                     st.dataframe(styled_df, use_container_width=True, height=300)
-            
-            # Show alignment statistics
-            st.subheader("🔗 Time Series Alignment Statistics")
-            if "ticker_details" in report:
-                alignment_stats = []
-                for ticker, details in report["ticker_details"].items():
-                    if ticker in report.get("missing_data_summary", {}):
-                        alignment_stats.append({
-                            "Ticker": ticker,
-                            "Length": details.get("original_length", 0),
-                            "Valid Points": details.get("non_na_count", 0),
-                            "Missing": details.get("na_count", 0),
-                            "Data Days": details.get("data_days", 0)
-                        })
-                
-                if alignment_stats:
-                    df_stats = pd.DataFrame(alignment_stats)
-                    st.dataframe(
-                        df_stats.style.format({
-                            'Length': '{:,}',
-                            'Valid Points': '{:,}',
-                            'Missing': '{:,}',
-                            'Data Days': '{:,}'
-                        }),
-                        use_container_width=True
-                    )
 
 # --- 3. ENHANCED OPTIMIZATION ENGINE WITH DATA VALIDATION ---
 class EnhancedOptimizationEngine:
@@ -524,8 +520,12 @@ class EnhancedOptimizationEngine:
         self.df = df_prices
         self.returns = df_prices.pct_change().dropna()
         if OPTIMIZATION_AVAILABLE:
-            self.mu = expected_returns.mean_historical_return(self.df)
-            self.S = risk_models.sample_cov(self.df)
+            try:
+                self.mu = expected_returns.mean_historical_return(self.df)
+                self.S = risk_models.sample_cov(self.df)
+            except:
+                self.mu = None
+                self.S = None
         else:
             self.mu = None
             self.S = None
@@ -554,7 +554,7 @@ class EnhancedOptimizationEngine:
     
     def optimize_mean_variance(self, objective="max_sharpe", risk_free_rate=0.04, gamma=None):
         """Robust mean-variance optimization."""
-        if not OPTIMIZATION_AVAILABLE:
+        if not OPTIMIZATION_AVAILABLE or self.mu is None or self.S is None:
             st.error("Optimization not available. Install PyPortfolioOpt.")
             return None, None
             
@@ -591,8 +591,8 @@ class EnhancedOptimizationEngine:
     
     def optimize_hrp(self):
         """Hierarchical Risk Parity optimization with error handling."""
-        if not OPTIMIZATION_AVAILABLE:
-            st.error("HRP optimization not available. Install PyPortfolioOpt.")
+        if not OPTIMIZATION_AVAILABLE or not HRP_AVAILABLE:
+            st.error("HRP optimization not available. Install latest PyPortfolioOpt.")
             return None, None
             
         try:
@@ -860,9 +860,11 @@ def main():
     # Initialize data manager
     dm = EnhancedDataManager()
     
-    # Initialize session state for custom shocks
+    # Initialize session state
     if 'custom_shocks' not in st.session_state:
         st.session_state.custom_shocks = []
+    if 'selected_assets' not in st.session_state:
+        st.session_state.selected_assets = []
     
     with st.sidebar:
         st.header("🌍 Global Asset Selection")
@@ -895,6 +897,10 @@ def main():
                 )
                 for s in selected:
                     selected_assets.append(assets[s])
+        
+        # Use session state if quick portfolio was selected
+        if st.session_state.selected_assets:
+            selected_assets = st.session_state.selected_assets
         
         st.divider()
         
@@ -951,17 +957,52 @@ def main():
         st.markdown("### 📈 Normalized Price Performance")
         normalized = (df_prices / df_prices.iloc[0]) * 100
         
-        fig_prices = px.line(
-            normalized,
+        # FIX FOR NARWHALS DUPLICATE ERROR: Ensure unique column names
+        # Add a small suffix to duplicate names if they exist
+        normalized_cols = normalized.columns.tolist()
+        seen = {}
+        new_cols = []
+        
+        for col in normalized_cols:
+            if col in seen:
+                seen[col] += 1
+                new_col = f"{col}_{seen[col]}"
+                st.warning(f"Renaming duplicate column: {col} -> {new_col}")
+            else:
+                seen[col] = 0
+                new_col = col
+            new_cols.append(new_col)
+        
+        normalized.columns = new_cols
+        
+        # Use Plotly Graph Objects instead of Plotly Express to avoid Narwhals error
+        fig = go.Figure()
+        for column in normalized.columns:
+            ticker_name = dm.get_ticker_name_map().get(column.split('_')[0], column)
+            fig.add_trace(go.Scatter(
+                x=normalized.index,
+                y=normalized[column],
+                mode='lines',
+                name=ticker_name,
+                hovertemplate=f'{ticker_name}<br>Date: %{{x}}<br>Value: %{{y:.1f}}<extra></extra>'
+            ))
+        
+        fig.update_layout(
             title="All Assets Rebased to 100",
-            labels={"value": "Index Value", "variable": "Asset"}
-        )
-        fig_prices.update_layout(
+            xaxis_title="Date",
+            yaxis_title="Index Value (Rebased to 100)",
             template="plotly_white",
             height=500,
-            hovermode="x unified"
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
         )
-        st.plotly_chart(fig_prices, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
         
         # Show summary statistics
         st.markdown("### 📊 Summary Statistics")
@@ -973,23 +1014,30 @@ def main():
         with col_stat2:
             st.metric("Avg Volatility (Ann.)", f"{returns.std().mean() * np.sqrt(252):.2%}")
         with col_stat3:
-            st.metric("Avg Correlation", f"{returns.corr().values.mean():.2f}")
+            corr_values = returns.corr().values
+            corr_values = corr_values[~np.eye(corr_values.shape[0], dtype=bool)]  # Remove diagonal
+            avg_corr = corr_values.mean()
+            st.metric("Avg Correlation", f"{avg_corr:.2f}")
     
     # --- TAB 2: PORTFOLIO OPTIMIZATION (Only if available) ---
     with tab2:
         if not OPTIMIZATION_AVAILABLE:
             st.warning("Portfolio optimization requires PyPortfolioOpt. Install with: pip install PyPortfolioOpt")
+            st.info("Running in data analysis mode only. Optimization features will be disabled.")
         else:
             st.subheader("🎯 Portfolio Construction & Optimization")
             
             # Optimization configuration
             col_conf1, col_conf2, col_conf3 = st.columns(3)
             with col_conf1:
-                strategy = st.selectbox(
-                    "Optimization Strategy",
-                    ["Max Sharpe Ratio", "Min Volatility", "Hierarchical Risk Parity (HRP)", 
-                     "Black-Litterman (Views)", "Equal Weight"]
-                )
+                # Filter out HRP if not available
+                strategy_options = ["Max Sharpe Ratio", "Min Volatility", "Equal Weight"]
+                if HRP_AVAILABLE:
+                    strategy_options.insert(2, "Hierarchical Risk Parity (HRP)")
+                if BLACK_LITTERMAN_AVAILABLE:
+                    strategy_options.append("Black-Litterman (Views)")
+                
+                strategy = st.selectbox("Optimization Strategy", strategy_options)
             
             with col_conf2:
                 rf_rate = st.number_input("Risk Free Rate (%)", value=4.5, step=0.1) / 100
@@ -1027,7 +1075,7 @@ def main():
                     try:
                         engine = EnhancedOptimizationEngine(df_prices)
                         
-                        if strategy == "Hierarchical Risk Parity (HRP)":
+                        if strategy == "Hierarchical Risk Parity (HRP)" and HRP_AVAILABLE:
                             weights, perf = engine.optimize_hrp()
                         elif strategy == "Black-Litterman (Views)" and views_dict and BLACK_LITTERMAN_AVAILABLE:
                             weights, perf, _ = engine.optimize_black_litterman(views_dict, confidences)
@@ -1113,9 +1161,11 @@ def main():
                             weights_array = np.array([weights.get(col, 0) for col in df_prices.columns])
                             fig_ef = EnhancedChartFactory.plot_efficient_frontier(engine.mu, engine.S, weights_array)
                             st.plotly_chart(fig_ef, use_container_width=True)
+                        else:
+                            st.error("Optimization failed to produce valid results.")
                         
                     except Exception as e:
-                        st.error(f"Optimization failed: {e}")
+                        st.error(f"Optimization failed: {str(e)[:200]}")
     
     # --- TAB 3: STRESS TESTING ---
     with tab3:
