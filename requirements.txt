@@ -1,0 +1,12 @@
+streamlit
+yfinance
+pandas
+numpy
+plotly
+seaborn
+scipy
+statsmodels
+PyPortfolioOpt
+cvxpy
+matplotlib
+scikit-learn
