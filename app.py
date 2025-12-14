@@ -802,6 +802,59 @@ def discrete_allocation(self, weights: Dict[str, float], portfolio_value: float 
 # ==============================================================================
 # Advanced Performance Metrics Engine (50+)
 # ==============================================================================
+
+    def discrete_allocation(self, weights: Dict[str, float], portfolio_value: float = 1_000_000.0) -> Tuple[pd.DataFrame, float]:
+        """Discrete allocation (integer shares) using PyPortfolioOpt.
+        Returns (allocation_df, leftover_cash). If unavailable (or short weights), returns (empty_df, portfolio_value).
+        """
+        try:
+            if not OPTIMIZATION_AVAILABLE:
+                return pd.DataFrame(), float(portfolio_value)
+            if ("DiscreteAllocation" not in globals()) or (DiscreteAllocation is None) or ("get_latest_prices" not in globals()) or (get_latest_prices is None):
+                return pd.DataFrame(), float(portfolio_value)
+            if weights is None:
+                return pd.DataFrame(), float(portfolio_value)
+
+            w = dict(weights)
+
+            # Discrete allocation is long-only (no negative weights)
+            if any(float(v) < 0 for v in w.values()):
+                return pd.DataFrame(), float(portfolio_value)
+
+            w = {str(k): float(v) for k, v in w.items() if float(v) > 0}
+            if len(w) == 0:
+                return pd.DataFrame(), float(portfolio_value)
+
+            # latest prices
+            try:
+                latest_prices = get_latest_prices(self.prices)
+            except Exception:
+                latest_prices = self.prices.iloc[-1]
+            if isinstance(latest_prices, pd.DataFrame):
+                latest_prices = latest_prices.iloc[-1]
+            latest_prices = pd.Series(latest_prices)
+
+            da = DiscreteAllocation(w, latest_prices, total_portfolio_value=float(portfolio_value))
+            allocation, leftover = da.greedy_portfolio()
+
+            alloc_df = pd.DataFrame(list(allocation.items()), columns=["Asset", "Shares"])
+            if alloc_df.empty:
+                return pd.DataFrame(), float(leftover)
+
+            if "TICKER_NAME_MAP" in globals():
+                alloc_df["AssetName"] = alloc_df["Asset"].map(lambda t: TICKER_NAME_MAP.get(t, t))
+            else:
+                alloc_df["AssetName"] = alloc_df["Asset"]
+
+            alloc_df["Price"] = alloc_df["Asset"].map(lambda t: float(latest_prices.get(t, np.nan)))
+            alloc_df["Value"] = alloc_df["Shares"].astype(float) * alloc_df["Price"].astype(float)
+            alloc_df = alloc_df.sort_values("Value", ascending=False)
+
+            return alloc_df, float(leftover)
+        except Exception:
+            return pd.DataFrame(), float(portfolio_value)
+
+
 class AdvancedPerformanceMetrics:
     """
     Institutional 50+ metric engine for portfolio (and optional benchmark).
@@ -1807,7 +1860,10 @@ def tab_portfolio_optimization(prices: pd.DataFrame, bench: pd.Series):
         # Discrete allocation (integer shares) - optional
         with st.expander("Discrete Allocation (Integer Shares) — optional", expanded=False):
             pv = st.number_input("Total portfolio value ($)", min_value=1000.0, value=1_000_000.0, step=25_000.0, key=f"da_pv_{name}")
-            alloc_df, leftover = pe.discrete_allocation(w, portfolio_value=pv)
+            try:
+                alloc_df, leftover = pe.discrete_allocation(w, portfolio_value=pv)
+            except Exception:
+                alloc_df, leftover = pd.DataFrame(), float(pv)
             if alloc_df is not None and not alloc_df.empty:
                 st.dataframe(alloc_df, use_container_width=True)
                 st.caption(f"Leftover cash: ${leftover:,.2f}")
