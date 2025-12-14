@@ -1205,110 +1205,266 @@ def rolling_capm_with_ci(asset: pd.Series, benchmark: pd.Series, window: int = 1
 # Advanced VaR Engine (Historical, Parametric, MC, EVT) + visualizations
 # ==============================================================================
 class AdvancedVaREngine:
+    """Institutional VaR/CVaR(ES) engine with multiple distributions and robust outputs.
+
+    Conventions:
+      - VaR/ES are returned as POSITIVE loss numbers (e.g., 0.02 = 2%).
+      - ES is the Expected Shortfall (a.k.a. CVaR) of losses.
+      - hp scaling uses sqrt(hp) under iid assumption.
+    """
+
     def __init__(self, returns: pd.Series):
         self.r = returns.dropna().astype(float)
+        if self.r.name is None:
+            self.r.name = "Returns"
+
+    @staticmethod
+    def _scale_hp(x: float, hp: int) -> float:
+        return float(x) * float(np.sqrt(max(int(hp), 1)))
+
+    @staticmethod
+    def _safe_float(x: Any) -> float:
+        try:
+            return float(x)
+        except Exception:
+            return float("nan")
 
     def historical(self, cl: float = 0.95, hp: int = 1) -> Dict[str, Any]:
         if len(self.r) < 50:
-            return {"Method": "Historical", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan}
-        a = 1 - cl
-        var_1d = -np.percentile(self.r, a * 100)
-        var_hp = var_1d * np.sqrt(hp)
-        tail = self.r[self.r <= -var_1d]
-        cvar = -tail.mean() if len(tail) else np.nan
-        return {"Method": "Historical", "VaR_1d": float(var_1d), "VaR_hp": float(var_hp), "CVaR": float(cvar)}
+            return {"Method": "Historical", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "n": int(len(self.r))}
+        a = 1 - float(cl)
+        q = np.percentile(self.r.values, a * 100)  # q is (typically) negative
+        var_1d = -q
+        tail = self.r[self.r <= q]
+        es_1d = -(tail.mean()) if len(tail) else np.nan
 
-    def parametric(self, cl: float = 0.95, hp: int = 1, dist: str = "normal") -> Dict[str, Any]:
-        mu = float(self.r.mean())
-        sig = float(self.r.std())
-        if dist == "t":
-            df = max(5, len(self.r) - 1)
-            z = stats.t.ppf(1 - cl, df)
-        elif dist == "laplace":
-            z = np.log(2*cl) if cl > 0.5 else -np.log(2*(1-cl))
-        else:
-            z = stats.norm.ppf(1 - cl)
-        var_1d = -(mu + z * sig)
-        var_hp = -(mu * hp + z * sig * np.sqrt(hp))
-        cvar = -(mu - sig * stats.norm.pdf(z) / (1 - cl)) if dist == "normal" else np.nan
-        return {"Method": f"Parametric({dist})", "VaR_1d": float(var_1d), "VaR_hp": float(var_hp), "CVaR": float(cvar)}
-    def monte_carlo(
-        self,
-        cl: float = 0.95,
-        hp: int = 1,
-        sims: int = 5000,
-        dist: str = "normal",
-        df: int = 6,
-        seed: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """Monte Carlo VaR/CVaR (ES) for hp-day compounded return.
-
-        dist: normal | t | laplace  (more can be added safely)
-        df:   degrees of freedom for Student-t (>=3)
-        """
-        r = self.r.dropna().astype(float)
-        if len(r) < 50:
-            return {"Method": f"MonteCarlo({dist})", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan, "Sims": int(sims)}
-
-        mu = float(r.mean())
-        sig = float(r.std())
-        rng = np.random.default_rng(seed)
-
-        dist_l = (dist or "normal").lower().strip()
-
-        if dist_l in ("normal", "gaussian"):
-            sim = rng.normal(mu, sig, size=(sims, hp))
-        elif dist_l in ("t", "student", "student-t", "student_t"):
-            df_eff = max(int(df), 3)
-            z = rng.standard_t(df_eff, size=(sims, hp))
-            # Standardize to unit-variance (t has variance df/(df-2))
-            z = z / np.sqrt(df_eff / (df_eff - 2))
-            sim = mu + sig * z
-        elif dist_l in ("laplace", "doubleexponential", "double_exponential"):
-            # Laplace std = sqrt(2)*b -> b = sig/sqrt(2)
-            b = float(sig / np.sqrt(2)) if sig > 0 else 0.0
-            sim = rng.laplace(mu, b, size=(sims, hp))
-        else:
-            # fallback
-            dist_l = "normal"
-            sim = rng.normal(mu, sig, size=(sims, hp))
-
-        cum = (1 + sim).prod(axis=1) - 1
-        var_hp = -np.percentile(cum, (1 - cl) * 100)
-        tail = cum[cum <= -var_hp]
-        cvar = -float(np.mean(tail)) if len(tail) else np.nan
-        var_1d = var_hp / np.sqrt(hp) if hp > 1 else var_hp
-
-        return {
-            "Method": f"MonteCarlo({dist_l})",
-            "VaR_1d": float(var_1d),
-            "VaR_hp": float(var_hp),
-            "CVaR": float(cvar),
-            "Sims": int(sims),
-            "Dist": dist_l,
-            "df": int(df) if dist_l in ("t", "student", "student-t", "student_t") else np.nan
+        out = {
+            "Method": "Historical",
+            "VaR_1d": self._safe_float(var_1d),
+            "VaR_hp": self._safe_float(self._scale_hp(var_1d, hp)),
+            "CVaR": self._safe_float(es_1d),     # legacy alias (1d)
+            "ES_1d": self._safe_float(es_1d),
+            "ES_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+            "CVaR_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+            "n": int(len(self.r))
         }
+        return out
 
-    def evt_gpd(self, cl: float = 0.95, threshold_q: float = 0.90) -> Dict[str, Any]:
-        from scipy.stats import genpareto
-        r = np.sort(self.r.values)
-        n = len(r)
-        if n < 200:
-            return {"Method": "EVT(GPD)", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan}
-        th_idx = int(n * threshold_q)
-        th = r[th_idx]
-        exc = r[r < th] - th
-        if len(exc) < 20:
-            return {"Method": "EVT(GPD)", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan}
+    def parametric(self, cl: float = 0.95, hp: int = 1, dist: str = "normal", df: Optional[float] = None) -> Dict[str, Any]:
+        if len(self.r) < 50:
+            return {"Method": f"Parametric({dist})", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "n": int(len(self.r))}
+        a = 1 - float(cl)
+        mu = float(self.r.mean())
+        sig = float(self.r.std(ddof=1))
+        if not np.isfinite(sig) or sig <= 1e-12:
+            return {"Method": f"Parametric({dist})", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "n": int(len(self.r))}
+
+        dist = (dist or "normal").lower().strip()
+        method = f"Parametric({dist})"
+
         try:
-            params = genpareto.fit(-exc)
-            xi, beta = float(params[0]), float(params[2])
-            n_u = len(exc)
-            var = th + (beta/xi) * (((n/n_u)*(1-cl))**(-xi) - 1) if xi != 0 else th + beta*np.log((n/n_u)*(1-cl))
-            cvar = (var + beta - xi*th) / (1 - xi) if xi < 1 else np.inf
-            return {"Method": "EVT(GPD)", "VaR_1d": float(-var), "VaR_hp": float(-var*np.sqrt(5)), "CVaR": float(-cvar), "xi": xi, "beta": beta, "th": float(th), "exc": int(n_u)}
+            if dist in ("normal", "gaussian"):
+                z = stats.norm.ppf(a)
+                q = mu + sig * z
+                var_1d = -q
+                es_1d = -(mu - sig * (stats.norm.pdf(z) / max(a, 1e-12)))
+                return {
+                    "Method": method,
+                    "VaR_1d": self._safe_float(var_1d),
+                    "VaR_hp": self._safe_float(self._scale_hp(var_1d, hp)),
+                    "CVaR": self._safe_float(es_1d),
+                    "ES_1d": self._safe_float(es_1d),
+                    "ES_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                    "CVaR_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                    "mu": mu,
+                    "sigma": sig,
+                    "n": int(len(self.r))
+                }
+
+            if dist in ("t", "student", "student-t", "student_t"):
+                v = float(df) if df is not None else 6.0
+                # optional quick fit (best-effort; won't crash)
+                try:
+                    v_fit, loc_fit, scale_fit = stats.t.fit(self.r.values)
+                    if np.isfinite(v_fit) and 2.2 <= v_fit <= 50:
+                        v = float(v_fit)
+                        mu = float(loc_fit)
+                        sig = float(scale_fit)
+                except Exception:
+                    pass
+
+                d = stats.t(df=v, loc=mu, scale=sig)
+                q = float(d.ppf(a))
+                var_1d = -q
+                # ES via numerical expectation (fallback to sampling if integration fails)
+                try:
+                    tail_mean = float(d.expect(lambda x: x, lb=-np.inf, ub=q) / max(a, 1e-12))
+                except Exception:
+                    sims = np.clip(200000, 50000, 200000)  # fixed budget
+                    xs = d.rvs(size=int(sims))
+                    tail_mean = float(xs[xs <= q].mean()) if np.any(xs <= q) else float("nan")
+                es_1d = -tail_mean
+
+                return {
+                    "Method": method,
+                    "VaR_1d": self._safe_float(var_1d),
+                    "VaR_hp": self._safe_float(self._scale_hp(var_1d, hp)),
+                    "CVaR": self._safe_float(es_1d),
+                    "ES_1d": self._safe_float(es_1d),
+                    "ES_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                    "CVaR_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                    "df": v,
+                    "mu": mu,
+                    "sigma": sig,
+                    "n": int(len(self.r))
+                }
+
+            if dist in ("laplace", "doubleexponential", "double-exponential"):
+                d = stats.laplace(loc=mu, scale=sig / np.sqrt(2))
+                q = float(d.ppf(a))
+                var_1d = -q
+                try:
+                    tail_mean = float(d.expect(lambda x: x, lb=-np.inf, ub=q) / max(a, 1e-12))
+                except Exception:
+                    xs = d.rvs(size=200000)
+                    tail_mean = float(xs[xs <= q].mean()) if np.any(xs <= q) else float("nan")
+                es_1d = -tail_mean
+                return {
+                    "Method": method,
+                    "VaR_1d": self._safe_float(var_1d),
+                    "VaR_hp": self._safe_float(self._scale_hp(var_1d, hp)),
+                    "CVaR": self._safe_float(es_1d),
+                    "ES_1d": self._safe_float(es_1d),
+                    "ES_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                    "CVaR_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                    "mu": mu,
+                    "sigma": sig,
+                    "n": int(len(self.r))
+                }
+
         except Exception:
-            return {"Method": "EVT(GPD)", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan}
+            pass
+
+        return {"Method": method, "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "n": int(len(self.r))}
+
+    def monte_carlo(self, cl: float = 0.95, hp: int = 1, sims: int = 8000, dist: str = "normal",
+                    df: Optional[float] = None, seed: Optional[int] = None) -> Dict[str, Any]:
+        if len(self.r) < 50:
+            return {"Method": f"MC({dist})", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "sims": int(sims), "n": int(len(self.r))}
+        a = 1 - float(cl)
+        mu = float(self.r.mean())
+        sig = float(self.r.std(ddof=1))
+        if not np.isfinite(sig) or sig <= 1e-12:
+            return {"Method": f"MC({dist})", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "sims": int(sims), "n": int(len(self.r))}
+
+        dist = (dist or "normal").lower().strip()
+        method = f"MC({dist})"
+
+        rng = np.random.default_rng(seed)
+        s = int(max(2000, sims))
+        try:
+            if dist in ("normal", "gaussian"):
+                x = rng.normal(loc=mu, scale=sig, size=s)
+            elif dist in ("t", "student", "student-t", "student_t"):
+                v = float(df) if df is not None else 6.0
+                x = stats.t.rvs(df=v, loc=mu, scale=sig, size=s, random_state=rng)
+            elif dist in ("laplace", "doubleexponential", "double-exponential"):
+                # laplace variance = 2*b^2 => b = sig/sqrt(2)
+                b = sig / np.sqrt(2)
+                x = rng.laplace(loc=mu, scale=b, size=s)
+            else:
+                x = rng.normal(loc=mu, scale=sig, size=s)
+
+            q = float(np.quantile(x, a))
+            var_1d = -q
+            tail = x[x <= q]
+            es_1d = -(float(np.mean(tail)) if len(tail) else float("nan"))
+
+            return {
+                "Method": method,
+                "VaR_1d": self._safe_float(var_1d),
+                "VaR_hp": self._safe_float(self._scale_hp(var_1d, hp)),
+                "CVaR": self._safe_float(es_1d),
+                "ES_1d": self._safe_float(es_1d),
+                "ES_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                "CVaR_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                "mu": mu,
+                "sigma": sig,
+                "sims": int(s),
+                "n": int(len(self.r))
+            }
+        except Exception:
+            return {"Method": method, "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "sims": int(s), "n": int(len(self.r))}
+
+    def evt_gpd(self, cl: float = 0.95, hp: int = 1, threshold_q: float = 0.10) -> Dict[str, Any]:
+        """Peaks-over-threshold EVT on the LEFT tail (losses). Best-effort, returns NaNs if insufficient data."""
+        from scipy.stats import genpareto
+        r = self.r.dropna().values
+        n = len(r)
+        if n < 250:
+            return {"Method": "EVT(GPD)", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "n": int(n)}
+
+        try:
+            th = float(np.quantile(r, float(threshold_q)))
+            tail = r[r < th]
+            if len(tail) < 25:
+                return {"Method": "EVT(GPD)", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                        "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "n": int(n)}
+            # exceedances as positive losses beyond threshold
+            y = (th - tail)  # y >= 0
+            params = genpareto.fit(y)
+            xi = float(params[0])
+            loc = float(params[1])
+            beta = float(params[2])  # scale
+
+            a = 1 - float(cl)
+            p_u = float(threshold_q)  # P(X <= th)
+            # For left tail: P(X <= x) = p_u + (1-p_u) * P(Y >= th-x)??.
+            # Work in exceedance quantile for probability mass a within left tail.
+            # Probability within tail beyond threshold:
+            p_tail = a / max(p_u, 1e-12)
+            p_tail = min(max(p_tail, 1e-10), 0.999999)
+            # Quantile of exceedance:
+            qy = genpareto.ppf(1 - p_tail, c=xi, loc=loc, scale=beta)
+            qx = th - qy  # return quantile (negative)
+            var_1d = -qx
+
+            # ES for GPD (if xi < 1): E[X | X <= qx] approx th - E[Y | Y >= qy]
+            if xi < 1:
+                # Conditional mean exceedance beyond qy for GPD:
+                # E[Y | Y > qy] = (qy + (beta + xi*qy)/(1 - xi))
+                # Using standard result for GPD tail mean beyond threshold.
+                es_y = float((qy + (beta + xi*qy) / max(1 - xi, 1e-12)))
+                es_x = th - es_y
+                es_1d = -es_x
+            else:
+                es_1d = np.nan
+
+            return {
+                "Method": "EVT(GPD)",
+                "VaR_1d": self._safe_float(var_1d),
+                "VaR_hp": self._safe_float(self._scale_hp(var_1d, hp)),
+                "CVaR": self._safe_float(es_1d),
+                "ES_1d": self._safe_float(es_1d),
+                "ES_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                "CVaR_hp": self._safe_float(self._scale_hp(es_1d, hp)),
+                "xi": xi,
+                "beta": beta,
+                "th": th,
+                "n_tail": int(len(tail)),
+                "n": int(n)
+            }
+        except Exception:
+            return {"Method": "EVT(GPD)", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan,
+                    "ES_1d": np.nan, "ES_hp": np.nan, "CVaR_hp": np.nan, "n": int(n)}
 
     def compare_methods(self, cl: float = 0.95, hp: int = 1, sims: int = 8000) -> pd.DataFrame:
         methods = [
@@ -1318,47 +1474,24 @@ class AdvancedVaREngine:
             self.parametric(cl, hp, "laplace"),
             self.monte_carlo(cl, hp, sims=sims, dist="normal"),
             self.monte_carlo(cl, hp, sims=sims, dist="t"),
-            self.evt_gpd(cl, threshold_q=0.90)
+            self.monte_carlo(cl, hp, sims=sims, dist="laplace"),
+            self.evt_gpd(cl, hp=hp, threshold_q=0.10),
         ]
         df = pd.DataFrame(methods)
-        df["VaR_1d_%"] = df["VaR_1d"] * 100
-        df["CVaR_%"] = df["CVaR"] * 100
+        # Stable ordering + backwards compatibility
+        preferred = ["Method", "VaR_1d", "VaR_hp", "CVaR", "ES_1d", "ES_hp", "CVaR_hp"]
+        cols = preferred + [c for c in df.columns if c not in preferred]
+        df = df[cols]
         return df
 
     def chart_distribution(self, cl: float = 0.95) -> go.Figure:
-        fig = make_subplots(rows=2, cols=2,
-                            subplot_titles=("Return Distribution", "Loss Distribution & VaR",
-                                            "QQ Tail Diagnostic", "VaR/CVaR Method Comparison"),
-                            specs=[[{"type": "histogram"}, {"type": "histogram"}],
-                                   [{"type": "scatter"}, {"type": "bar"}]],
-                            vertical_spacing=0.15, horizontal_spacing=0.12)
-        r = self.r * 100
-        fig.add_trace(go.Histogram(x=r, nbinsx=60, name="Returns", opacity=0.75), row=1, col=1)
-
-        x = np.linspace(r.min(), r.max(), 200)
-        y = stats.norm.pdf(x, r.mean(), r.std())
-        fig.add_trace(go.Scatter(x=x, y=y * len(r) * (x[1]-x[0]), mode="lines", name="Normal Fit"), row=1, col=1)
-
-        losses = (-self.r[self.r < 0]) * 100
-        fig.add_trace(go.Histogram(x=losses, nbinsx=50, name="Losses", opacity=0.75), row=1, col=2)
-
-        var = self.historical(cl)["VaR_1d"] * 100
-        fig.add_vline(x=var, line_dash="dash", annotation_text=f"VaR {int(cl*100)}%: {var:.2f}%", row=1, col=2)
-
-        theo = stats.norm.ppf(np.linspace(0.01, 0.99, len(self.r)))
-        samp = np.sort(self.r.values)
-        fig.add_trace(go.Scatter(x=theo, y=samp, mode="markers", name="QQ Plot"), row=2, col=1)
-        m1 = min(theo.min(), samp.min())
-        m2 = max(theo.max(), samp.max())
-        fig.add_trace(go.Scatter(x=[m1, m2], y=[m1, m2], mode="lines", name="45° Line", line=dict(dash="dash")), row=2, col=1)
-
-        dfm = self.compare_methods(cl, 1).dropna(subset=["VaR_1d_%"])
-        fig.add_trace(go.Bar(x=dfm["Method"], y=dfm["VaR_1d_%"], name="VaR(%)", text=dfm["VaR_1d_%"].map(lambda v: f"{v:.2f}%"), textposition="auto"), row=2, col=2)
-        fig.add_trace(go.Scatter(x=dfm["Method"], y=dfm["CVaR_%"], mode="lines+markers", name="CVaR(%)"), row=2, col=2)
-
-        fig.update_layout(height=820, template="plotly_white", title=f"Advanced VaR/CVaR/ES Diagnostics (CL={int(cl*100)}%)",
-                          title_font_color="#1a237e")
-        fig.update_xaxes(tickangle=45, row=2, col=2)
+        a = 1 - float(cl)
+        r = self.r.dropna()
+        q = float(np.quantile(r, a))
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(x=r, nbinsx=60, name="Returns", opacity=0.85))
+        fig.add_vline(x=q, line_width=2, line_dash="dash", annotation_text=f"q({a:.3f})", annotation_position="top left")
+        fig.update_layout(height=420, title="Return Distribution (with tail quantile)", bargap=0.02)
         return fig
 
     def var_surface(self) -> go.Figure:
@@ -2188,76 +2321,133 @@ def tab_advanced_var(prices: pd.DataFrame, bench: pd.Series):
 
 
 
-    st.markdown('<div class="subsection-header">Relative VaR / CVaR / ES (Portfolio vs Benchmark)</div>', unsafe_allow_html=True)
-    if bench is None or (isinstance(bench, pd.Series) and bench.dropna().empty):
-        st.info("Benchmark series not available for relative risk. Select a benchmark in the sidebar.")
-    else:
-        rel_tabs = st.tabs(["Portfolio vs Benchmark", "Active (P − B)", "Comparative Charts"])
-        try:
-            br = bench.pct_change().dropna().rename("Benchmark")
-            aligned = pd.concat([pr.rename("Portfolio"), br], axis=1).dropna()
-            pr_a = aligned["Portfolio"]
-            br_a = aligned["Benchmark"]
+st.markdown('<div class="subsection-header">Relative Risk (VaR / CVaR / ES) vs Benchmark</div>', unsafe_allow_html=True)
+if bench is None or (isinstance(bench, pd.Series) and bench.dropna().empty):
+    st.info("Benchmark series not available for relative risk. Select a benchmark in the sidebar.")
+else:
+    rel_tabs = st.tabs(["📊 Method Tables", "📉 Active (P − B)", "📈 Comparative Charts"])
+    try:
+        br = bench.pct_change().dropna().rename("Benchmark")
+        aligned = pd.concat([pr.rename("Portfolio"), br], axis=1).dropna()
+        pr_a = aligned["Portfolio"].rename("Portfolio")
+        br_a = aligned["Benchmark"].rename("Benchmark")
+        act = (pr_a - br_a).rename("Active (P−B)")
 
-            with rel_tabs[0]:
-                ve_p = AdvancedVaREngine(pr_a)
-                ve_b = AdvancedVaREngine(br_a)
-                df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
-                df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
-                comp = pd.DataFrame({
-                    "VaR_hp_Port": df_p["VaR_hp"],
-                    "VaR_hp_Bench": df_b["VaR_hp"],
-                    "Δ VaR_hp (P−B)": df_p["VaR_hp"] - df_b["VaR_hp"],
-                    "CVaR_Port": df_p["CVaR"],
-                    "CVaR_Bench": df_b["CVaR"],
-                    "Δ CVaR (P−B)": df_p["CVaR"] - df_b["CVaR"],
-                }).reset_index()
-                st.dataframe(comp.style.format({
-                    "VaR_hp_Port": "{:.2%}",
-                    "VaR_hp_Bench": "{:.2%}",
-                    "Δ VaR_hp (P−B)": "{:.2%}",
-                    "CVaR_Port": "{:.2%}",
-                    "CVaR_Bench": "{:.2%}",
-                    "Δ CVaR (P−B)": "{:.2%}",
-                }), use_container_width=True)
-                download_csv(comp, "relative_var_cvar_table.csv", "Download Relative VaR/CVaR Table")
+        with rel_tabs[0]:
+            st.caption("Relative risk is computed **both ways**: (i) Δ metrics (Portfolio − Benchmark) and (ii) Active series risk on (P−B) returns.")
+            view = st.radio("Display horizon", ["Holding-period (hp)", "1-day"], horizontal=True, index=0, key="rel_view_horizon")
+            use_hp = (view == "Holding-period (hp)")
 
-            with rel_tabs[1]:
-                active = (pr_a - br_a).rename("Active")
-                ve_a = AdvancedVaREngine(active)
-                df_a = ve_a.compare_methods(cl, hp, sims=sims)
-                st.markdown('<div class="info-card"><b>Active risk</b><br>Active = Portfolio return − Benchmark return</div>', unsafe_allow_html=True)
-                st.dataframe(df_a, use_container_width=True)
-                fig_a = ve_a.chart_distribution(cl)
-                st.plotly_chart(fig_a, use_container_width=True)
+            ve_p = AdvancedVaREngine(pr_a)
+            ve_b = AdvancedVaREngine(br_a)
+            ve_a = AdvancedVaREngine(act)
 
-            with rel_tabs[2]:
-                # comparative charts (VaR_hp and CVaR) across methods
-                ve_p = AdvancedVaREngine(pr_a)
-                ve_b = AdvancedVaREngine(br_a)
-                df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
-                df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
-                methods = df_p.index.intersection(df_b.index)
+            df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
+            df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
+            df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
+            methods = df_p.index.intersection(df_b.index).intersection(df_a.index)
+            if len(methods) == 0:
+                st.info("No overlapping methods available for relative comparison.")
+            else:
+                var_col = "VaR_hp" if use_hp else "VaR_1d"
+                es_col = "ES_hp" if use_hp else "ES_1d"
 
+                rel = pd.DataFrame({
+                    "VaR_Port": df_p.loc[methods, var_col],
+                    "VaR_Bench": df_b.loc[methods, var_col],
+                    "Δ VaR (P−B)": df_p.loc[methods, var_col] - df_b.loc[methods, var_col],
+                    "VaR_Active(P−B)": df_a.loc[methods, var_col],
+
+                    "ES_Port": df_p.loc[methods, es_col],
+                    "ES_Bench": df_b.loc[methods, es_col],
+                    "Δ ES (P−B)": df_p.loc[methods, es_col] - df_b.loc[methods, es_col],
+                    "ES_Active(P−B)": df_a.loc[methods, es_col],
+                }).reset_index().rename(columns={"index": "Method"})
+
+                st.dataframe(
+                    rel.style.format({
+                        "VaR_Port": "{:.2%}", "VaR_Bench": "{:.2%}", "Δ VaR (P−B)": "{:.2%}", "VaR_Active(P−B)": "{:.2%}",
+                        "ES_Port": "{:.2%}", "ES_Bench": "{:.2%}", "Δ ES (P−B)": "{:.2%}", "ES_Active(P−B)": "{:.2%}",
+                    }),
+                    use_container_width=True
+                )
+
+                pick = st.selectbox("Highlight method", rel["Method"].tolist(), index=0, key="rel_pick_method")
+                sel = rel[rel["Method"] == pick].iloc[0].to_dict()
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Δ VaR (P−B)", f'{sel["Δ VaR (P−B)"]:.2%}')
+                k2.metric("Δ ES (P−B)", f'{sel["Δ ES (P−B)"]:.2%}')
+                k3.metric("Active VaR", f'{sel["VaR_Active(P−B)"]:.2%}')
+                k4.metric("Active ES", f'{sel["ES_Active(P−B)"]:.2%}')
+
+        with rel_tabs[1]:
+            st.caption("Active series = Portfolio returns − Benchmark returns (same dates).")
+            ve_a = AdvancedVaREngine(act)
+            st.plotly_chart(ve_a.chart_distribution(cl), use_container_width=True)
+
+            # Rolling historical active risk (simple, robust)
+            win = st.slider("Rolling window (days)", 60, 504, 252, 21, key="rel_roll_win")
+            a = 1 - cl
+            r_act = act.dropna()
+            if len(r_act) >= win + 10:
+                roll_var = r_act.rolling(win).quantile(a).mul(-1.0)
+                # ES via rolling apply (best-effort, lightweight)
+                def _roll_es(x):
+                    q = np.quantile(x, a)
+                    tail = x[x <= q]
+                    return -float(np.mean(tail)) if len(tail) else np.nan
+                roll_es = r_act.rolling(win).apply(_roll_es, raw=False)
+
+                fig_roll = go.Figure()
+                fig_roll.add_trace(go.Scatter(x=roll_var.index, y=roll_var, name=f"Active VaR ({int(cl*100)}%)"))
+                fig_roll.add_trace(go.Scatter(x=roll_es.index, y=roll_es, name=f"Active ES ({int(cl*100)}%)"))
+                fig_roll.update_layout(height=420, title="Rolling Active Risk (Historical)", yaxis_tickformat=".2%")
+                st.plotly_chart(fig_roll, use_container_width=True)
+            else:
+                st.info("Not enough data for rolling active risk; extend the date range.")
+
+        with rel_tabs[2]:
+            ve_p = AdvancedVaREngine(pr_a)
+            ve_b = AdvancedVaREngine(br_a)
+            ve_a = AdvancedVaREngine(act)
+
+            df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
+            df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
+            df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
+            methods = df_p.index.intersection(df_b.index).intersection(df_a.index)
+            if len(methods) == 0:
+                st.info("No overlapping methods available for charts.")
+            else:
+                # VaR charts (hp)
                 fig_var = go.Figure()
                 fig_var.add_trace(go.Bar(x=methods, y=df_p.loc[methods, "VaR_hp"], name="Portfolio"))
                 fig_var.add_trace(go.Bar(x=methods, y=df_b.loc[methods, "VaR_hp"], name="Benchmark"))
-                fig_var.update_layout(barmode="group", height=420, title=f"VaR({int(cl*100)}%, {hp}d) — Portfolio vs Benchmark", xaxis_tickangle=35)
+                fig_var.add_trace(go.Bar(x=methods, y=df_a.loc[methods, "VaR_hp"], name="Active(P−B)"))
+                fig_var.update_layout(barmode="group", height=430,
+                                      title=f"VaR (hp={hp}d, CL={int(cl*100)}%) — Portfolio vs Benchmark vs Active",
+                                      xaxis_tickangle=35, yaxis_tickformat=".2%")
                 st.plotly_chart(fig_var, use_container_width=True)
 
+                # ES charts (hp)
                 fig_es = go.Figure()
-                fig_es.add_trace(go.Bar(x=methods, y=df_p.loc[methods, "CVaR"], name="Portfolio"))
-                fig_es.add_trace(go.Bar(x=methods, y=df_b.loc[methods, "CVaR"], name="Benchmark"))
-                fig_es.update_layout(barmode="group", height=420, title=f"CVaR/ES({int(cl*100)}%) — Portfolio vs Benchmark", xaxis_tickangle=35)
+                fig_es.add_trace(go.Bar(x=methods, y=df_p.loc[methods, "ES_hp"], name="Portfolio"))
+                fig_es.add_trace(go.Bar(x=methods, y=df_b.loc[methods, "ES_hp"], name="Benchmark"))
+                fig_es.add_trace(go.Bar(x=methods, y=df_a.loc[methods, "ES_hp"], name="Active(P−B)"))
+                fig_es.update_layout(barmode="group", height=430,
+                                     title=f"ES/CVaR (hp={hp}d, CL={int(cl*100)}%) — Portfolio vs Benchmark vs Active",
+                                     xaxis_tickangle=35, yaxis_tickformat=".2%")
                 st.plotly_chart(fig_es, use_container_width=True)
 
-                fig_delta = go.Figure()
-                fig_delta.add_trace(go.Bar(x=methods, y=(df_p.loc[methods, "VaR_hp"] - df_b.loc[methods, "VaR_hp"]), name="Δ VaR_hp (P−B)"))
-                fig_delta.update_layout(height=420, title="Relative VaR Difference (P−B)", xaxis_tickangle=35)
-                st.plotly_chart(fig_delta, use_container_width=True)
-        except Exception as _e:
-            st.warning(f"Relative risk failed: {_e}")
+                # Δ charts (P−B)
+                fig_d = go.Figure()
+                fig_d.add_trace(go.Bar(x=methods, y=(df_p.loc[methods, "VaR_hp"] - df_b.loc[methods, "VaR_hp"]), name="Δ VaR_hp (P−B)"))
+                fig_d.add_trace(go.Bar(x=methods, y=(df_p.loc[methods, "ES_hp"] - df_b.loc[methods, "ES_hp"]), name="Δ ES_hp (P−B)"))
+                fig_d.update_layout(barmode="group", height=420,
+                                    title="Relative Differences (Portfolio − Benchmark)", xaxis_tickangle=35, yaxis_tickformat=".2%")
+                st.plotly_chart(fig_d, use_container_width=True)
 
+    except Exception as _e:
+        st.warning(f"Relative risk failed: {_e}")
     st.divider()
     st.markdown('<div class="subsection-header">Regional Classification & Relative Risk (Institutional)</div>', unsafe_allow_html=True)
 
