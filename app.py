@@ -137,14 +137,17 @@ class EnhancedDataManager:
                 m[t] = name
         return m
 
+    def ticker_category_map(self) -> Dict[str, str]:
+        """Map ticker -> universe category (for region inference & labeling)."""
+        m: Dict[str, str] = {}
+        for cat, d in self.universe.items():
+            for _name, t in d.items():
+                m[t] = cat
+        return m
 
 
-def ticker_category_map(self) -> Dict[str, str]:
-    m = {}
-    for cat, d in self.universe.items():
-        for _name, t in d.items():
-            m[t] = cat
-    return m
+
+
 data_manager = EnhancedDataManager()
 TICKER_NAME_MAP = data_manager.ticker_name_map()
 
