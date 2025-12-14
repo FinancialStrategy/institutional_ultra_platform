@@ -209,7 +209,7 @@ st.markdown("""
             background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
             border-left: 4px solid #2196f3;
             color: #0d47a1;
-            border-radius: 8px;
+            border-radius= 8px;
             padding: 15px;
             margin: 10px 0;
         }
@@ -296,7 +296,7 @@ st.markdown("""
         .stMetric {
             background: white;
             border: 1px solid #e0e0e0;
-            border-radius: 8px;
+            border-radius= 8px;
             padding: 15px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.05);
         }
@@ -313,12 +313,12 @@ st.markdown("""
         
         ::-webkit-scrollbar-track {
             background: #f1f1f1;
-            border-radius: 4px;
+            border-radius= 4px;
         }
         
         ::-webkit-scrollbar-thumb {
             background: #c5cae9;
-            border-radius: 4px;
+            border-radius= 4px;
         }
         
         ::-webkit-scrollbar-thumb:hover {
@@ -335,7 +335,7 @@ st.markdown("""
         .modebar {
             background-color: white !important;
             border: 1px solid #e0e0e0 !important;
-            border-radius: 8px !important;
+            border-radius= 8px !important;
         }
         
         /* Bollinger band alerts */
@@ -956,7 +956,7 @@ class BollingerBandsAnalyzer:
         return pd.DataFrame(summary_data)
 
 # ==============================================================================
-# 6) OHLC CHART AND TRACKING ERROR ANALYZER (NEW)
+# 6) OHLC CHART AND TRACKING ERROR ANALYZER (NEW) - FIXED
 # ==============================================================================
 
 class OHLCAndTrackingErrorAnalyzer:
@@ -964,7 +964,7 @@ class OHLCAndTrackingErrorAnalyzer:
     
     def __init__(self):
         self.ohlc_data = {}
-        
+    
     @st.cache_data(ttl=3600, show_spinner=False)
     def fetch_ohlc_data(_self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
         """Fetch OHLC data for a specific ticker"""
@@ -980,12 +980,21 @@ class OHLCAndTrackingErrorAnalyzer:
             if data.empty:
                 return pd.DataFrame()
             
+            # Handle MultiIndex columns
+            if isinstance(data.columns, pd.MultiIndex):
+                # Extract the first level if it exists
+                data = data.droplevel(level=0, axis=1) if data.columns.nlevels > 1 else data
+            
             # Ensure we have OHLC columns
             required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-            if not all(col in data.columns for col in required_cols):
+            
+            # Check if we have the required columns
+            available_cols = [col for col in required_cols if col in data.columns]
+            
+            if not available_cols:
                 return pd.DataFrame()
             
-            return data[required_cols]
+            return data[available_cols]
             
         except Exception as e:
             st.warning(f"Could not fetch OHLC data for {ticker}: {e}")
@@ -993,7 +1002,7 @@ class OHLCAndTrackingErrorAnalyzer:
     
     def create_ohlc_chart(self, ticker: str, start_date: str, end_date: str, 
                          ticker_name: str = None) -> go.Figure:
-        """Create interactive OHLC candlestick chart"""
+        """Create interactive OHLC candlestick chart - FIXED VERSION"""
         ohlc_df = self.fetch_ohlc_data(ticker, start_date, end_date)
         
         if ohlc_df.empty:
@@ -1014,13 +1023,14 @@ class OHLCAndTrackingErrorAnalyzer:
         )])
         
         # Add volume as bar chart on secondary y-axis
-        fig.add_trace(go.Bar(
-            x=ohlc_df.index,
-            y=ohlc_df['Volume'],
-            name='Volume',
-            marker_color='rgba(158, 158, 158, 0.5)',
-            yaxis='y2'
-        ))
+        if 'Volume' in ohlc_df.columns:
+            fig.add_trace(go.Bar(
+                x=ohlc_df.index,
+                y=ohlc_df['Volume'],
+                name='Volume',
+                marker_color='rgba(158, 158, 158, 0.5)',
+                yaxis='y2'
+            ))
         
         # Calculate and add moving averages
         for window in [20, 50, 200]:
@@ -1045,7 +1055,7 @@ class OHLCAndTrackingErrorAnalyzer:
                 overlaying="y",
                 side="right",
                 showgrid=False
-            ),
+            ) if 'Volume' in ohlc_df.columns else None,
             template="plotly_white",
             height=600,
             font_color="#424242",
@@ -1060,22 +1070,42 @@ class OHLCAndTrackingErrorAnalyzer:
             hovermode="x unified"
         )
         
-        # Add technical indicators summary
+        # Add technical indicators summary - FIXED
         if len(ohlc_df) > 0:
+            # Extract scalar values properly
             current_close = ohlc_df['Close'].iloc[-1]
-            prev_close = ohlc_df['Close'].iloc[-2] if len(ohlc_df) > 1 else current_close
-            change_pct = ((current_close - prev_close) / prev_close * 100) if prev_close > 0 else 0
+            if not isinstance(current_close, (int, float, np.number)):
+                # Handle case where it's a Series or other type
+                current_close = float(current_close.iloc[0]) if hasattr(current_close, 'iloc') else float(current_close)
+            
+            if len(ohlc_df) > 1:
+                prev_close = ohlc_df['Close'].iloc[-2]
+                if not isinstance(prev_close, (int, float, np.number)):
+                    # Handle case where it's a Series or other type
+                    prev_close = float(prev_close.iloc[0]) if hasattr(prev_close, 'iloc') else float(prev_close)
+                
+                # Check if prev_close is valid and not zero
+                if isinstance(prev_close, (int, float, np.number)) and prev_close > 0:
+                    change_pct = ((current_close - prev_close) / prev_close * 100)
+                else:
+                    change_pct = 0
+            else:
+                change_pct = 0
+            
+            # Format the change percentage
+            change_text = f"Latest: ${current_close:.2f} ({change_pct:+.2f}%)"
+            change_color = '#388e3c' if change_pct >= 0 else '#d32f2f'
             
             fig.add_annotation(
                 x=0.02,
                 y=0.98,
                 xref="paper",
                 yref="paper",
-                text=f"Latest: ${current_close:.2f} ({change_pct:+.2f}%)",
+                text=change_text,
                 showarrow=False,
-                font=dict(size=12, color='#388e3c' if change_pct >= 0 else '#d32f2f'),
+                font=dict(size=12, color=change_color),
                 bgcolor="white",
-                bordercolor='#388e3c' if change_pct >= 0 else '#d32f2f',
+                bordercolor=change_color,
                 borderwidth=1,
                 borderpad=4
             )
@@ -2496,7 +2526,7 @@ def create_enhanced_stress_test_tab():
                         min_value=0.0, 
                         max_value=1.0, 
                         value=0.5, 
-                        step=0.1,
+                    step=0.1,
                         help="0 = normal liquidity, 1 = severely impaired liquidity",
                         key="custom_liquidity"
                     )
