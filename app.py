@@ -137,8 +137,98 @@ class EnhancedDataManager:
                 m[t] = name
         return m
 
+
+
+def ticker_category_map(self) -> Dict[str, str]:
+    m = {}
+    for cat, d in self.universe.items():
+        for _name, t in d.items():
+            m[t] = cat
+    return m
 data_manager = EnhancedDataManager()
 TICKER_NAME_MAP = data_manager.ticker_name_map()
+
+
+TICKER_CATEGORY_MAP = data_manager.ticker_category_map()
+
+# ==============================================================================
+# Regional Classification (Auto via Universe Category + Ticker Suffix Fallback)
+# ==============================================================================
+REGION_OPTIONS = [
+    "North America (US/Canada)",
+    "Europe",
+    "Asia-Pacific",
+    "Emerging Markets",
+    "Turkey",
+    "Latin America",
+    "Middle East & Africa",
+    "Global",
+    "Crypto",
+    "Commodities",
+    "FX",
+    "Other"
+]
+
+def infer_region_from_category(cat: str) -> str:
+    c = (cat or "").lower()
+    if "bist" in c or "turkey" in c:
+        return "Turkey"
+    if "us" in c or "north america" in c:
+        return "North America (US/Canada)"
+    if "europe" in c or "uk" in c or "germany" in c or "france" in c or "swiss" in c:
+        return "Europe"
+    if "asia" in c or "japan" in c or "china" in c or "korea" in c or "india" in c or "australia" in c:
+        return "Asia-Pacific"
+    if "emerging" in c:
+        return "Emerging Markets"
+    if "latin" in c or "latam" in c or "brazil" in c or "mexico" in c:
+        return "Latin America"
+    if "mena" in c or "middle east" in c or "africa" in c:
+        return "Middle East & Africa"
+    if "crypto" in c:
+        return "Crypto"
+    if "commodity" in c or "commodities" in c:
+        return "Commodities"
+    if "fx" in c or "forex" in c:
+        return "FX"
+    if "global benchmark" in c or "benchmarks" in c:
+        return "Global"
+    return "Global"
+
+def infer_region_from_ticker(ticker: str) -> str:
+    t = (ticker or "").upper().strip()
+    # Exchange suffix heuristics (Yahoo Finance)
+    suffix = ""
+    if "." in t:
+        suffix = t.split(".")[-1]
+    if suffix in {"IS"}:
+        return "Turkey"
+    if suffix in {"L"}:
+        return "Europe"
+    if suffix in {"DE", "F", "PA", "MI", "AS", "BR", "SW", "ST", "HE", "VI", "MC"}:
+        return "Europe"
+    if suffix in {"T", "HK", "KS", "KQ", "SS", "SZ", "SI", "AX", "NZ"}:
+        return "Asia-Pacific"
+    if suffix in {"SA", "MX", "BA", "SN"}:
+        return "Latin America"
+    # Common ETFs / indices default to NA/Global
+    if t.startswith("^"):
+        return "Global"
+    if t in {"SPY", "QQQ", "IWM", "DIA", "TLT", "IEF", "HYG", "LQD"}:
+        return "North America (US/Canada)"
+    if t in {"EEM", "VWO"}:
+        return "Emerging Markets"
+    if t in {"EWJ", "EWA", "EWH"}:
+        return "Asia-Pacific"
+    if t in {"FEZ", "VGK", "EWG", "EWU"}:
+        return "Europe"
+    return "Other"
+
+def infer_region(ticker: str) -> str:
+    if ticker in TICKER_CATEGORY_MAP:
+        return infer_region_from_category(TICKER_CATEGORY_MAP.get(ticker, ""))
+    return infer_region_from_ticker(ticker)
+
 
 # ==============================================================================
 # Robust data fetch + alignment (no NaNs; equal length)
@@ -148,12 +238,13 @@ def fetch_prices(
     tickers: Tuple[str, ...],
     start: str,
     end: str,
-    min_points: int = 200
+    min_points: int = 200,
+    benchmark_ticker: str = "^GSPC"
 ) -> Tuple[pd.DataFrame, pd.Series, Dict[str, Any]]:
     if not tickers:
         return pd.DataFrame(), pd.Series(dtype=float), {"warnings": ["No tickers selected."]}
 
-    benchmark = "^GSPC"
+    benchmark = (benchmark_ticker or "^GSPC")
     all_tickers = list(dict.fromkeys(list(tickers) + [benchmark]))
 
     try:
@@ -1171,13 +1262,14 @@ class AdvancedVaREngine:
         except Exception:
             return {"Method": "EVT(GPD)", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan}
 
-    def compare_methods(self, cl: float = 0.95, hp: int = 1) -> pd.DataFrame:
+    def compare_methods(self, cl: float = 0.95, hp: int = 1, sims: int = 8000) -> pd.DataFrame:
         methods = [
             self.historical(cl, hp),
             self.parametric(cl, hp, "normal"),
             self.parametric(cl, hp, "t"),
             self.parametric(cl, hp, "laplace"),
-            self.monte_carlo(cl, hp, sims=8000),
+            self.monte_carlo(cl, hp, sims=sims, dist="normal"),
+            self.monte_carlo(cl, hp, sims=sims, dist="t"),
             self.evt_gpd(cl, threshold_q=0.90)
         ]
         df = pd.DataFrame(methods)
@@ -2027,7 +2119,7 @@ def tab_advanced_var(prices: pd.DataFrame, bench: pd.Series):
     hp = c2.slider("Holding Period (days)", 1, 20, 5, 1)
     sims = c3.selectbox("Monte Carlo sims", [2000, 5000, 8000, 12000], index=2)
 
-    dfm = var_engine.compare_methods(cl, hp)
+    dfm = var_engine.compare_methods(cl, hp, sims=sims)
     st.dataframe(dfm, use_container_width=True)
     download_csv(dfm, "var_methods_comparison.csv", "Download VaR comparison CSV")
 
@@ -2062,8 +2154,8 @@ def tab_advanced_var(prices: pd.DataFrame, bench: pd.Series):
             with rel_tabs[0]:
                 ve_p = AdvancedVaREngine(pr_a)
                 ve_b = AdvancedVaREngine(br_a)
-                df_p = ve_p.compare_methods(cl, hp).set_index("Method")
-                df_b = ve_b.compare_methods(cl, hp).set_index("Method")
+                df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
+                df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
                 comp = pd.DataFrame({
                     "VaR_hp_Port": df_p["VaR_hp"],
                     "VaR_hp_Bench": df_b["VaR_hp"],
@@ -2085,7 +2177,7 @@ def tab_advanced_var(prices: pd.DataFrame, bench: pd.Series):
             with rel_tabs[1]:
                 active = (pr_a - br_a).rename("Active")
                 ve_a = AdvancedVaREngine(active)
-                df_a = ve_a.compare_methods(cl, hp)
+                df_a = ve_a.compare_methods(cl, hp, sims=sims)
                 st.markdown('<div class="info-card"><b>Active risk</b><br>Active = Portfolio return − Benchmark return</div>', unsafe_allow_html=True)
                 st.dataframe(df_a, use_container_width=True)
                 fig_a = ve_a.chart_distribution(cl)
@@ -2095,8 +2187,8 @@ def tab_advanced_var(prices: pd.DataFrame, bench: pd.Series):
                 # comparative charts (VaR_hp and CVaR) across methods
                 ve_p = AdvancedVaREngine(pr_a)
                 ve_b = AdvancedVaREngine(br_a)
-                df_p = ve_p.compare_methods(cl, hp).set_index("Method")
-                df_b = ve_b.compare_methods(cl, hp).set_index("Method")
+                df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
+                df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
                 methods = df_p.index.intersection(df_b.index)
 
                 fig_var = go.Figure()
@@ -2117,6 +2209,243 @@ def tab_advanced_var(prices: pd.DataFrame, bench: pd.Series):
                 st.plotly_chart(fig_delta, use_container_width=True)
         except Exception as _e:
             st.warning(f"Relative risk failed: {_e}")
+
+    st.divider()
+    st.markdown('<div class="subsection-header">Regional Classification & Relative Risk (Institutional)</div>', unsafe_allow_html=True)
+
+    try:
+        assets = list(prices.columns)
+        w_s = pd.Series(w, index=assets).fillna(0.0)
+        w_s = w_s / max(1e-12, float(w_s.sum()))
+
+        # --- build default region map (universe-category first, then suffix fallback) ---
+        default_region = {a: infer_region(a) for a in assets}
+
+        # Allow user overrides (persist across tabs)
+        overrides = st.session_state.get("region_overrides", {})
+        region_map = {a: overrides.get(a, default_region.get(a, "Global")) for a in assets}
+
+        with st.expander("🗺️ Regional Classification (edit & persist)", expanded=False):
+            reg_df = pd.DataFrame({
+                "Ticker": assets,
+                "Name": [TICKER_NAME_MAP.get(a, a) for a in assets],
+                "Region": [region_map[a] for a in assets],
+                "Weight": [float(w_s.get(a, 0.0)) for a in assets],
+            }).sort_values(["Region", "Weight"], ascending=[True, False])
+
+            edited = st.data_editor(
+                reg_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Region": st.column_config.SelectboxColumn(
+                        "Region",
+                        options=REGION_OPTIONS,
+                        required=True,
+                        help="Edit regions here; changes are stored in session_state."
+                    ),
+                    "Weight": st.column_config.NumberColumn("Weight", format="%.2f")
+                },
+                disabled=["Ticker", "Name", "Weight"],
+                key="region_editor"
+            )
+
+            # Persist overrides (ticker -> region)
+            st.session_state["region_overrides"] = {row["Ticker"]: row["Region"] for _, row in edited.iterrows()}
+            region_map = st.session_state["region_overrides"]
+
+        # --- region weights donut ---
+        region_w = pd.DataFrame({
+            "Region": [region_map.get(a, "Global") for a in assets],
+            "Weight": [float(w_s.get(a, 0.0)) for a in assets]
+        }).groupby("Region", as_index=False)["Weight"].sum()
+        region_w = region_w[region_w["Weight"] > 1e-6].sort_values("Weight", ascending=False)
+
+        if not region_w.empty:
+            fig_rw = px.pie(region_w, names="Region", values="Weight", hole=0.55, title="Portfolio Region Weights (Wheel %)")
+            fig_rw.update_layout(template="plotly_white", height=380, margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_rw, use_container_width=True)
+
+        # --- compute region return series (stand-alone normalized & contribution-to-total) ---
+        bench_r = pd.Series(dtype=float)
+        if bench is not None and not getattr(bench, "empty", True):
+            bench_r = bench.pct_change().dropna().astype(float)
+
+        # Align to portfolio returns index
+        pr_idx = pr.index
+        bench_r = bench_r.reindex(pr_idx).dropna() if not bench_r.empty else bench_r
+        pr_a, br_a = pr.align(bench_r, join="inner") if not bench_r.empty else (pr, bench_r)
+
+        region_returns = {}
+        region_contrib = {}
+        for reg in sorted(set(region_map.values())):
+            ticks_r = [a for a in assets if region_map.get(a, "Global") == reg]
+            if not ticks_r:
+                continue
+            wr = w_s.reindex(ticks_r).fillna(0.0)
+            wr_sum = float(wr.sum())
+            if wr_sum <= 1e-8:
+                continue
+
+            # normalized region sleeve ($1 in region)
+            w_norm = (wr / wr_sum).to_dict()
+            rr = portfolio_returns_from_weights(ret[ticks_r], w_norm).reindex(pr_idx).dropna()
+            region_returns[reg] = rr.rename(reg)
+
+            # contribution return to total portfolio (sleeve P&L contribution)
+            w_contrib = wr.to_dict()
+            rc = portfolio_returns_from_weights(ret[ticks_r], w_contrib).reindex(pr_idx).dropna()
+            region_contrib[reg] = rc.rename(reg)
+
+        if not region_returns:
+            st.info("No regional sleeves could be built (check weights / region mapping).")
+            return
+
+        # --- Regional Risk Analytics UI ---
+        reg_tabs = st.tabs(["🌍 Regional Risk (Absolute)", "🧭 Regional Relative (vs Benchmark)", "📉 Rolling Risk (Historical)"])
+
+        with reg_tabs[0]:
+            st.markdown('<div class="info-card"><b>Regional sleeves</b>: VaR/CVaR/ES computed on each region sleeve normalized to $1 invested in that region.</div>', unsafe_allow_html=True)
+
+            df_list = []
+            for reg, rr in region_returns.items():
+                ve = AdvancedVaREngine(rr)
+                dfm = ve.compare_methods(cl, hp, sims=sims).copy()
+                dfm.insert(0, "Region", reg)
+                df_list.append(dfm)
+
+            rdf = pd.concat(df_list, ignore_index=True)
+            st.dataframe(rdf, use_container_width=True)
+
+            # Heatmap VaR_hp by region & method
+            pivot = rdf.pivot_table(index="Region", columns="Method", values="VaR_hp", aggfunc="mean")
+            pivot = pivot.reindex(index=region_w["Region"].tolist() if not region_w.empty else sorted(pivot.index))
+            fig_hm = go.Figure(data=go.Heatmap(z=pivot.values, x=pivot.columns, y=pivot.index, colorbar=dict(title="VaR_hp")))
+            fig_hm.update_layout(template="plotly_white", height=420, title=f"Regional VaR_hp Heatmap (HP={hp}d, CL={int(cl*100)}%)")
+            st.plotly_chart(fig_hm, use_container_width=True)
+
+            # Bar chart for a selected method
+            sel_method = st.selectbox("Method for regional comparison", list(pivot.columns), index=0)
+            bar_df = pivot[sel_method].dropna().sort_values(ascending=False).reset_index()
+            fig_bar = px.bar(bar_df, x="Region", y=sel_method, title=f"Regional {sel_method} — VaR_hp", text=sel_method)
+            fig_bar.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+            download_csv(rdf, "regional_var_cvar_es_table.csv", "Download Regional Risk Table")
+
+        with reg_tabs[1]:
+            if br_a is None or getattr(br_a, "empty", True) or len(br_a) < 50:
+                st.warning("Benchmark returns are not available/aligned enough for regional relative risk.")
+            else:
+                st.markdown('<div class="info-card"><b>Regional relative risk</b>: Active returns = Region sleeve − Benchmark. Shows Active VaR/CVaR/ES plus Δ (Region − Benchmark).</div>', unsafe_allow_html=True)
+
+                # benchmark metrics
+                vb = AdvancedVaREngine(br_a)
+                bdf = vb.compare_methods(cl, hp, sims=sims).set_index("Method")
+
+                out = []
+                for reg, rr in region_returns.items():
+                    rr_a, br2 = rr.align(br_a, join="inner")
+                    if len(rr_a) < 50:
+                        continue
+                    ve_r = AdvancedVaREngine(rr_a)
+                    df_r = ve_r.compare_methods(cl, hp, sims=sims).set_index("Method")
+
+                    active = (rr_a - br2).rename("Active")
+                    ve_a = AdvancedVaREngine(active)
+                    df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
+
+                    methods = df_r.index.intersection(bdf.index).intersection(df_a.index)
+                    for meth in methods:
+                        out.append({
+                            "Region": reg,
+                            "Method": meth,
+                            "VaR_hp_Region": float(df_r.loc[meth, "VaR_hp"]),
+                            "VaR_hp_Bench": float(bdf.loc[meth, "VaR_hp"]),
+                            "Δ VaR_hp (R−B)": float(df_r.loc[meth, "VaR_hp"] - bdf.loc[meth, "VaR_hp"]),
+                            "Active_VaR_hp": float(df_a.loc[meth, "VaR_hp"]),
+                            "ES_Region": float(df_r.loc[meth, "CVaR"]),
+                            "ES_Bench": float(bdf.loc[meth, "CVaR"]),
+                            "Δ ES (R−B)": float(df_r.loc[meth, "CVaR"] - bdf.loc[meth, "CVaR"]),
+                            "Active_ES": float(df_a.loc[meth, "CVaR"]),
+                        })
+
+                relr = pd.DataFrame(out)
+                if relr.empty:
+                    st.info("No regional relative results (insufficient overlap).")
+                else:
+                    st.dataframe(relr, use_container_width=True)
+
+                    # Charts: Active VaR by region for selected method
+                    methods = sorted(relr["Method"].unique().tolist())
+                    selm = st.selectbox("Method for active regional comparison", methods, index=0, key="reg_rel_method")
+                    tmp = relr[relr["Method"] == selm].copy()
+                    tmp = tmp.sort_values("Active_VaR_hp", ascending=False)
+
+                    fig_act = px.bar(tmp, x="Region", y="Active_VaR_hp", title=f"Active VaR_hp (Region − Benchmark) — {selm}", text="Active_VaR_hp")
+                    fig_act.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
+                    st.plotly_chart(fig_act, use_container_width=True)
+
+                    fig_d = px.bar(tmp, x="Region", y="Δ VaR_hp (R−B)", title=f"Δ VaR_hp (Region − Benchmark) — {selm}", text="Δ VaR_hp (R−B)")
+                    fig_d.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
+                    st.plotly_chart(fig_d, use_container_width=True)
+
+                    download_csv(relr, "regional_relative_var_es_table.csv", "Download Regional Relative Risk Table")
+
+        with reg_tabs[2]:
+            st.markdown('<div class="info-card"><b>Rolling Historical Risk</b> (institutional monitoring): rolling VaR/ES for Portfolio, Benchmark, Active, and selected Region sleeve.</div>', unsafe_allow_html=True)
+
+            window = st.slider("Rolling window (days)", 60, 504, 126, 21)
+            cl_opts = [0.90, 0.95, 0.975, 0.99]
+            default_cls = [float(cl)] if float(cl) in cl_opts else [0.95]
+            cl_list = st.multiselect("Confidence curve", cl_opts, default=default_cls)
+
+            # choose a region for rolling view
+            reg_pick = st.selectbox("Region sleeve for rolling view", list(region_returns.keys()), index=0, key="rolling_reg_pick")
+            rr = region_returns[reg_pick].reindex(pr_idx).dropna()
+
+            def rolling_hist_var_es(series: pd.Series, _cl: float, win: int) -> Tuple[pd.Series, pd.Series]:
+                r = series.dropna()
+                if len(r) < win + 5:
+                    idx = series.index
+                    return pd.Series(index=idx, dtype=float), pd.Series(index=idx, dtype=float)
+                a = 1 - _cl
+                var = r.rolling(win).apply(lambda x: -np.percentile(x, a*100), raw=False)
+                es = r.rolling(win).apply(lambda x: -x[x <= np.percentile(x, a*100)].mean() if np.any(x <= np.percentile(x, a*100)) else np.nan, raw=False)
+                return var, es
+
+            # Plot rolling VaR for portfolio, benchmark, active, region
+            for _cl in cl_list:
+                fig_rv = go.Figure()
+                v_p, e_p = rolling_hist_var_es(pr_a, _cl, window)
+                fig_rv.add_trace(go.Scatter(x=v_p.index, y=v_p, mode="lines", name=f"Portfolio VaR({_cl})"))
+
+                if not br_a.empty:
+                    v_b, e_b = rolling_hist_var_es(br_a, _cl, window)
+                    fig_rv.add_trace(go.Scatter(x=v_b.index, y=v_b, mode="lines", name=f"Benchmark VaR({_cl})"))
+
+                    act = (pr_a - br_a).dropna()
+                    v_a, e_a = rolling_hist_var_es(act, _cl, window)
+                    fig_rv.add_trace(go.Scatter(x=v_a.index, y=v_a, mode="lines", name=f"Active VaR({_cl})"))
+
+                rr_a = rr.reindex(pr_a.index).dropna()
+                v_r, e_r = rolling_hist_var_es(rr_a, _cl, window)
+                fig_rv.add_trace(go.Scatter(x=v_r.index, y=v_r, mode="lines", name=f"{reg_pick} VaR({_cl})"))
+
+                fig_rv.update_layout(template="plotly_white", height=420, title=f"Rolling Historical VaR — Window={window}d")
+                st.plotly_chart(fig_rv, use_container_width=True)
+
+                fig_re = go.Figure()
+                fig_re.add_trace(go.Scatter(x=e_p.index, y=e_p, mode="lines", name=f"Portfolio ES({_cl})"))
+                if not br_a.empty:
+                    fig_re.add_trace(go.Scatter(x=e_b.index, y=e_b, mode="lines", name=f"Benchmark ES({_cl})"))
+                    fig_re.add_trace(go.Scatter(x=e_a.index, y=e_a, mode="lines", name=f"Active ES({_cl})"))
+                fig_re.add_trace(go.Scatter(x=e_r.index, y=e_r, mode="lines", name=f"{reg_pick} ES({_cl})"))
+                fig_re.update_layout(template="plotly_white", height=420, title=f"Rolling Historical ES — Window={window}d")
+                st.plotly_chart(fig_re, use_container_width=True)
+
+    except Exception as _re:
+        st.warning(f"Regional relative risk section failed: {_re}")
 
 def tab_stress_testing(prices: pd.DataFrame):
     st.markdown('<div class="section-header">Stress Testing Lab (Historical + Custom + Shock Simulator)</div>', unsafe_allow_html=True)
@@ -3203,6 +3532,17 @@ def main():
     tickers = st.sidebar.multiselect("Select assets (50+ supported)", list(universe_dict.values()), default=default_tickers)
     st.sidebar.caption("Tip: pick 8–20 assets for fastest diagnostics; you can still select more.")
 
+    
+    st.sidebar.markdown("### Benchmark (Regional)")
+    bench_map = data_manager.universe.get("Global Benchmarks", {})
+    bench_labels = list(bench_map.keys()) if isinstance(bench_map, dict) else []
+    default_bench_label = bench_labels[0] if bench_labels else "S&P 500 (US)"
+    bench_label = st.sidebar.selectbox("Benchmark index", bench_labels if bench_labels else ["Custom"], index=0)
+    bench_ticker_default = bench_map.get(bench_label, "^GSPC") if bench_labels else "^GSPC"
+    bench_ticker = st.sidebar.text_input("Benchmark ticker (override)", value=str(bench_ticker_default))
+    st.sidebar.caption("Relative / active risk uses this benchmark. You can override with any Yahoo ticker (e.g., ^GDAXI, ^FTSE, ^N225).")
+
+
     start = st.sidebar.date_input("Start date", value=(datetime.now() - timedelta(days=365*5)).date())
     end = st.sidebar.date_input("End date", value=datetime.now().date())
     min_points = st.sidebar.slider("Minimum data points per asset", 60, 1000, 200, 20)
@@ -3213,7 +3553,7 @@ def main():
 
     # Fetch
     with st.spinner("Fetching and aligning market data..."):
-        prices, bench, report = fetch_prices(tuple(tickers), str(start), str(end), int(min_points))
+        prices, bench, report = fetch_prices(tuple(tickers), str(start), str(end), int(min_points), benchmark_ticker=str(bench_ticker))
 
     if prices.empty:
         st.error("No usable price data. Adjust tickers/date range/min points.")
