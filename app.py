@@ -1232,17 +1232,62 @@ class AdvancedVaREngine:
         var_hp = -(mu * hp + z * sig * np.sqrt(hp))
         cvar = -(mu - sig * stats.norm.pdf(z) / (1 - cl)) if dist == "normal" else np.nan
         return {"Method": f"Parametric({dist})", "VaR_1d": float(var_1d), "VaR_hp": float(var_hp), "CVaR": float(cvar)}
+    def monte_carlo(
+        self,
+        cl: float = 0.95,
+        hp: int = 1,
+        sims: int = 5000,
+        dist: str = "normal",
+        df: int = 6,
+        seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Monte Carlo VaR/CVaR (ES) for hp-day compounded return.
 
-    def monte_carlo(self, cl: float = 0.95, hp: int = 1, sims: int = 5000) -> Dict[str, Any]:
-        mu = float(self.r.mean())
-        sig = float(self.r.std())
-        sim = np.random.normal(mu, sig, size=(sims, hp))
+        dist: normal | t | laplace  (more can be added safely)
+        df:   degrees of freedom for Student-t (>=3)
+        """
+        r = self.r.dropna().astype(float)
+        if len(r) < 50:
+            return {"Method": f"MonteCarlo({dist})", "VaR_1d": np.nan, "VaR_hp": np.nan, "CVaR": np.nan, "Sims": int(sims)}
+
+        mu = float(r.mean())
+        sig = float(r.std())
+        rng = np.random.default_rng(seed)
+
+        dist_l = (dist or "normal").lower().strip()
+
+        if dist_l in ("normal", "gaussian"):
+            sim = rng.normal(mu, sig, size=(sims, hp))
+        elif dist_l in ("t", "student", "student-t", "student_t"):
+            df_eff = max(int(df), 3)
+            z = rng.standard_t(df_eff, size=(sims, hp))
+            # Standardize to unit-variance (t has variance df/(df-2))
+            z = z / np.sqrt(df_eff / (df_eff - 2))
+            sim = mu + sig * z
+        elif dist_l in ("laplace", "doubleexponential", "double_exponential"):
+            # Laplace std = sqrt(2)*b -> b = sig/sqrt(2)
+            b = float(sig / np.sqrt(2)) if sig > 0 else 0.0
+            sim = rng.laplace(mu, b, size=(sims, hp))
+        else:
+            # fallback
+            dist_l = "normal"
+            sim = rng.normal(mu, sig, size=(sims, hp))
+
         cum = (1 + sim).prod(axis=1) - 1
         var_hp = -np.percentile(cum, (1 - cl) * 100)
         tail = cum[cum <= -var_hp]
-        cvar = -tail.mean() if len(tail) else np.nan
+        cvar = -float(np.mean(tail)) if len(tail) else np.nan
         var_1d = var_hp / np.sqrt(hp) if hp > 1 else var_hp
-        return {"Method": "MonteCarlo", "VaR_1d": float(var_1d), "VaR_hp": float(var_hp), "CVaR": float(cvar), "Sims": int(sims)}
+
+        return {
+            "Method": f"MonteCarlo({dist_l})",
+            "VaR_1d": float(var_1d),
+            "VaR_hp": float(var_hp),
+            "CVaR": float(cvar),
+            "Sims": int(sims),
+            "Dist": dist_l,
+            "df": int(df) if dist_l in ("t", "student", "student-t", "student_t") else np.nan
+        }
 
     def evt_gpd(self, cl: float = 0.95, threshold_q: float = 0.90) -> Dict[str, Any]:
         from scipy.stats import genpareto
