@@ -2161,52 +2161,54 @@ def tab_market_overview(prices: pd.DataFrame, bench: pd.Series, report: Dict[str
     c2.metric("Rows", str(report.get("rows", len(prices))))
     c3.metric("Range", f'{report.get("start_date","")} → {report.get("end_date","")}')
 
-# Universe classification (Region / Country / Instrument Type)
-with st.expander("Universe Classification (Region / Country / Instrument Type)", expanded=False):
-    meta_df = meta_df_for_tickers(list(prices.columns))
-    st.dataframe(meta_df, use_container_width=True, height=280)
+    # Universe classification (Region / Country / Instrument Type)
+    with st.expander("Universe Classification (Region / Country / Instrument Type)", expanded=False):
+        meta_df = meta_df_for_tickers(list(prices.columns))
+        st.dataframe(meta_df, use_container_width=True, height=280)
 
-    if not meta_df.empty:
-        cc1, cc2, cc3 = st.columns([1,1,1])
+        if not meta_df.empty:
+            cc1, cc2, cc3 = st.columns([1, 1, 1])
 
-        reg = meta_df["Region"].value_counts().reset_index()
-        reg.columns = ["Region", "Count"]
-        fig_reg = px.pie(reg, names="Region", values="Count", title="Assets by Region")
-        fig_reg.update_layout(template="plotly_white", height=320, margin=dict(l=10, r=10, t=50, b=10))
-        cc1.plotly_chart(fig_reg, use_container_width=True)
+            reg = meta_df["Region"].value_counts(dropna=False).reset_index()
+            reg.columns = ["Region", "Count"]
+            fig_reg = px.pie(reg, names="Region", values="Count", title="Assets by Region")
+            fig_reg.update_layout(template="plotly_white", height=320, margin=dict(l=10, r=10, t=50, b=10))
+            cc1.plotly_chart(fig_reg, use_container_width=True)
 
-        ctry = meta_df["Country"].value_counts().reset_index()
-        ctry.columns = ["Country", "Count"]
-        fig_ctry = px.pie(ctry, names="Country", values="Count", title="Assets by Country")
-        fig_ctry.update_layout(template="plotly_white", height=320, margin=dict(l=10, r=10, t=50, b=10))
-        cc2.plotly_chart(fig_ctry, use_container_width=True)
+            ctry = meta_df["Country"].value_counts(dropna=False).reset_index()
+            ctry.columns = ["Country", "Count"]
+            fig_ctry = px.pie(ctry, names="Country", values="Count", title="Assets by Country")
+            fig_ctry.update_layout(template="plotly_white", height=320, margin=dict(l=10, r=10, t=50, b=10))
+            cc2.plotly_chart(fig_ctry, use_container_width=True)
 
-        it = meta_df["InstrumentType"].value_counts().reset_index()
-        it.columns = ["InstrumentType", "Count"]
-        fig_it = px.bar(it, x="InstrumentType", y="Count", title="Assets by Instrument Type")
-        fig_it.update_layout(template="plotly_white", height=320, margin=dict(l=10, r=10, t=50, b=10),
-                            xaxis_title="", yaxis_title="Count")
-        cc3.plotly_chart(fig_it, use_container_width=True)
+            inst = meta_df["InstrumentType"].value_counts(dropna=False).reset_index()
+            inst.columns = ["InstrumentType", "Count"]
+            fig_inst = px.bar(inst, x="InstrumentType", y="Count", title="Assets by Instrument Type")
+            fig_inst.update_layout(template="plotly_white", height=320, margin=dict(l=10, r=10, t=50, b=10))
+            cc3.plotly_chart(fig_inst, use_container_width=True)
 
-
-    if report.get("warnings"):
-        st.markdown('<div class="warning-card"><b>Data Warnings</b><br>' + "<br>".join(report["warnings"]) + "</div>", unsafe_allow_html=True)
-
-    # Price chart
+    # Normalized price performance
     if not prices.empty:
+        st.markdown('<div class="subsection-header">Normalized Price Performance</div>', unsafe_allow_html=True)
         norm = prices / prices.iloc[0]
         fig = go.Figure()
         for col in norm.columns:
             fig.add_trace(go.Scatter(x=norm.index, y=norm[col], mode="lines", name=TICKER_NAME_MAP.get(col, col)))
-        fig.update_layout(height=520, template="plotly_white", title="Normalized Price Performance", title_font_color="#1a237e",
-                          xaxis_title="Date", yaxis_title="Normalized (Start=1)")
+        fig.update_layout(
+            height=520,
+            template="plotly_white",
+            title="Normalized Price Performance (Start=1)",
+            xaxis_title="Date",
+            yaxis_title="Normalized"
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     # Benchmark
-    if bench is not None and not bench.empty:
+    if bench is not None and isinstance(bench, pd.Series) and not bench.dropna().empty:
         st.markdown('<div class="subsection-header">Benchmark</div>', unsafe_allow_html=True)
-        figb = go.Figure(go.Scatter(x=bench.index, y=bench/bench.iloc[0], mode="lines", name="^GSPC"))
-        figb.update_layout(height=280, template="plotly_white", title="Benchmark Normalized (^GSPC)", title_font_color="#1a237e")
+        bnorm = bench / bench.dropna().iloc[0]
+        figb = go.Figure(go.Scatter(x=bnorm.index, y=bnorm, mode="lines", name="Benchmark"))
+        figb.update_layout(height=280, template="plotly_white", title="Benchmark Normalized", xaxis_title="Date", yaxis_title="Normalized")
         st.plotly_chart(figb, use_container_width=True)
 
     # Data quality table
@@ -2217,7 +2219,6 @@ with st.expander("Universe Classification (Region / Country / Instrument Type)",
         st.markdown('<div class="subsection-header">Data Quality Snapshot</div>', unsafe_allow_html=True)
         st.dataframe(dq, use_container_width=True)
         download_csv(dq, "data_quality.csv", "Download data quality CSV")
-
 
 def tab_portfolio_optimization(prices: pd.DataFrame, bench: pd.Series):
     st.markdown('<div class="section-header">Portfolio Optimization Suite (Equal, MV, HRP, BL)</div>', unsafe_allow_html=True)
