@@ -2537,7 +2537,7 @@ else:
 
         if not region_returns:
             st.info("No regional sleeves could be built (check weights / region mapping).")
-            return
+            st.stop()  # Streamlit-safe stop (avoids 'return outside function' parse issues)
 
         # --- Regional Risk Analytics UI ---
         reg_tabs = st.tabs(["🌍 Regional Risk (Absolute)", "🧭 Regional Relative (vs Benchmark)", "📉 Rolling Risk (Historical)"])
