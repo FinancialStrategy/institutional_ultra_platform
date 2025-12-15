@@ -2321,370 +2321,369 @@ def tab_advanced_var(prices: pd.DataFrame, bench: pd.Series):
 
 
 
-st.markdown('<div class="subsection-header">Relative Risk (VaR / CVaR / ES) vs Benchmark</div>', unsafe_allow_html=True)
-if bench is None or (isinstance(bench, pd.Series) and bench.dropna().empty):
-    st.info("Benchmark series not available for relative risk. Select a benchmark in the sidebar.")
-else:
-    rel_tabs = st.tabs(["📊 Method Tables", "📉 Active (P − B)", "📈 Comparative Charts"])
-    try:
-        br = bench.pct_change().dropna().rename("Benchmark")
-        aligned = pd.concat([pr.rename("Portfolio"), br], axis=1).dropna()
-        pr_a = aligned["Portfolio"].rename("Portfolio")
-        br_a = aligned["Benchmark"].rename("Benchmark")
-        act = (pr_a - br_a).rename("Active (P−B)")
+    st.markdown('<div class="subsection-header">Relative Risk (VaR / CVaR / ES) vs Benchmark</div>', unsafe_allow_html=True)
+    if bench is None or (isinstance(bench, pd.Series) and bench.dropna().empty):
+        st.info("Benchmark series not available for relative risk. Select a benchmark in the sidebar.")
+    else:
+        rel_tabs = st.tabs(["📊 Method Tables", "📉 Active (P − B)", "📈 Comparative Charts"])
+        try:
+            br = bench.pct_change().dropna().rename("Benchmark")
+            aligned = pd.concat([pr.rename("Portfolio"), br], axis=1).dropna()
+            pr_a = aligned["Portfolio"].rename("Portfolio")
+            br_a = aligned["Benchmark"].rename("Benchmark")
+            act = (pr_a - br_a).rename("Active (P−B)")
 
-        with rel_tabs[0]:
-            st.caption("Relative risk is computed **both ways**: (i) Δ metrics (Portfolio − Benchmark) and (ii) Active series risk on (P−B) returns.")
-            view = st.radio("Display horizon", ["Holding-period (hp)", "1-day"], horizontal=True, index=0, key="rel_view_horizon")
-            use_hp = (view == "Holding-period (hp)")
+            with rel_tabs[0]:
+                st.caption("Relative risk is computed **both ways**: (i) Δ metrics (Portfolio − Benchmark) and (ii) Active series risk on (P−B) returns.")
+                view = st.radio("Display horizon", ["Holding-period (hp)", "1-day"], horizontal=True, index=0, key="rel_view_horizon")
+                use_hp = (view == "Holding-period (hp)")
 
-            ve_p = AdvancedVaREngine(pr_a)
-            ve_b = AdvancedVaREngine(br_a)
-            ve_a = AdvancedVaREngine(act)
+                ve_p = AdvancedVaREngine(pr_a)
+                ve_b = AdvancedVaREngine(br_a)
+                ve_a = AdvancedVaREngine(act)
 
-            df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
-            df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
-            df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
-            methods = df_p.index.intersection(df_b.index).intersection(df_a.index)
-            if len(methods) == 0:
-                st.info("No overlapping methods available for relative comparison.")
-            else:
-                var_col = "VaR_hp" if use_hp else "VaR_1d"
-                es_col = "ES_hp" if use_hp else "ES_1d"
-
-                rel = pd.DataFrame({
-                    "VaR_Port": df_p.loc[methods, var_col],
-                    "VaR_Bench": df_b.loc[methods, var_col],
-                    "Δ VaR (P−B)": df_p.loc[methods, var_col] - df_b.loc[methods, var_col],
-                    "VaR_Active(P−B)": df_a.loc[methods, var_col],
-
-                    "ES_Port": df_p.loc[methods, es_col],
-                    "ES_Bench": df_b.loc[methods, es_col],
-                    "Δ ES (P−B)": df_p.loc[methods, es_col] - df_b.loc[methods, es_col],
-                    "ES_Active(P−B)": df_a.loc[methods, es_col],
-                }).reset_index().rename(columns={"index": "Method"})
-
-                st.dataframe(
-                    rel.style.format({
-                        "VaR_Port": "{:.2%}", "VaR_Bench": "{:.2%}", "Δ VaR (P−B)": "{:.2%}", "VaR_Active(P−B)": "{:.2%}",
-                        "ES_Port": "{:.2%}", "ES_Bench": "{:.2%}", "Δ ES (P−B)": "{:.2%}", "ES_Active(P−B)": "{:.2%}",
-                    }),
-                    use_container_width=True
-                )
-
-                pick = st.selectbox("Highlight method", rel["Method"].tolist(), index=0, key="rel_pick_method")
-                sel = rel[rel["Method"] == pick].iloc[0].to_dict()
-                k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Δ VaR (P−B)", f'{sel["Δ VaR (P−B)"]:.2%}')
-                k2.metric("Δ ES (P−B)", f'{sel["Δ ES (P−B)"]:.2%}')
-                k3.metric("Active VaR", f'{sel["VaR_Active(P−B)"]:.2%}')
-                k4.metric("Active ES", f'{sel["ES_Active(P−B)"]:.2%}')
-
-        with rel_tabs[1]:
-            st.caption("Active series = Portfolio returns − Benchmark returns (same dates).")
-            ve_a = AdvancedVaREngine(act)
-            st.plotly_chart(ve_a.chart_distribution(cl), use_container_width=True)
-
-            # Rolling historical active risk (simple, robust)
-            win = st.slider("Rolling window (days)", 60, 504, 252, 21, key="rel_roll_win")
-            a = 1 - cl
-            r_act = act.dropna()
-            if len(r_act) >= win + 10:
-                roll_var = r_act.rolling(win).quantile(a).mul(-1.0)
-                # ES via rolling apply (best-effort, lightweight)
-                def _roll_es(x):
-                    q = np.quantile(x, a)
-                    tail = x[x <= q]
-                    return -float(np.mean(tail)) if len(tail) else np.nan
-                roll_es = r_act.rolling(win).apply(_roll_es, raw=False)
-
-                fig_roll = go.Figure()
-                fig_roll.add_trace(go.Scatter(x=roll_var.index, y=roll_var, name=f"Active VaR ({int(cl*100)}%)"))
-                fig_roll.add_trace(go.Scatter(x=roll_es.index, y=roll_es, name=f"Active ES ({int(cl*100)}%)"))
-                fig_roll.update_layout(height=420, title="Rolling Active Risk (Historical)", yaxis_tickformat=".2%")
-                st.plotly_chart(fig_roll, use_container_width=True)
-            else:
-                st.info("Not enough data for rolling active risk; extend the date range.")
-
-        with rel_tabs[2]:
-            ve_p = AdvancedVaREngine(pr_a)
-            ve_b = AdvancedVaREngine(br_a)
-            ve_a = AdvancedVaREngine(act)
-
-            df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
-            df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
-            df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
-            methods = df_p.index.intersection(df_b.index).intersection(df_a.index)
-            if len(methods) == 0:
-                st.info("No overlapping methods available for charts.")
-            else:
-                # VaR charts (hp)
-                fig_var = go.Figure()
-                fig_var.add_trace(go.Bar(x=methods, y=df_p.loc[methods, "VaR_hp"], name="Portfolio"))
-                fig_var.add_trace(go.Bar(x=methods, y=df_b.loc[methods, "VaR_hp"], name="Benchmark"))
-                fig_var.add_trace(go.Bar(x=methods, y=df_a.loc[methods, "VaR_hp"], name="Active(P−B)"))
-                fig_var.update_layout(barmode="group", height=430,
-                                      title=f"VaR (hp={hp}d, CL={int(cl*100)}%) — Portfolio vs Benchmark vs Active",
-                                      xaxis_tickangle=35, yaxis_tickformat=".2%")
-                st.plotly_chart(fig_var, use_container_width=True)
-
-                # ES charts (hp)
-                fig_es = go.Figure()
-                fig_es.add_trace(go.Bar(x=methods, y=df_p.loc[methods, "ES_hp"], name="Portfolio"))
-                fig_es.add_trace(go.Bar(x=methods, y=df_b.loc[methods, "ES_hp"], name="Benchmark"))
-                fig_es.add_trace(go.Bar(x=methods, y=df_a.loc[methods, "ES_hp"], name="Active(P−B)"))
-                fig_es.update_layout(barmode="group", height=430,
-                                     title=f"ES/CVaR (hp={hp}d, CL={int(cl*100)}%) — Portfolio vs Benchmark vs Active",
-                                     xaxis_tickangle=35, yaxis_tickformat=".2%")
-                st.plotly_chart(fig_es, use_container_width=True)
-
-                # Δ charts (P−B)
-                fig_d = go.Figure()
-                fig_d.add_trace(go.Bar(x=methods, y=(df_p.loc[methods, "VaR_hp"] - df_b.loc[methods, "VaR_hp"]), name="Δ VaR_hp (P−B)"))
-                fig_d.add_trace(go.Bar(x=methods, y=(df_p.loc[methods, "ES_hp"] - df_b.loc[methods, "ES_hp"]), name="Δ ES_hp (P−B)"))
-                fig_d.update_layout(barmode="group", height=420,
-                                    title="Relative Differences (Portfolio − Benchmark)", xaxis_tickangle=35, yaxis_tickformat=".2%")
-                st.plotly_chart(fig_d, use_container_width=True)
-
-    except Exception as _e:
-        st.warning(f"Relative risk failed: {_e}")
-    st.divider()
-    st.markdown('<div class="subsection-header">Regional Classification & Relative Risk (Institutional)</div>', unsafe_allow_html=True)
-
-    try:
-        assets = list(prices.columns)
-        w_s = pd.Series(w, index=assets).fillna(0.0)
-        w_s = w_s / max(1e-12, float(w_s.sum()))
-
-        # --- build default region map (universe-category first, then suffix fallback) ---
-        default_region = {a: infer_region(a) for a in assets}
-
-        # Allow user overrides (persist across tabs)
-        overrides = st.session_state.get("region_overrides", {})
-        region_map = {a: overrides.get(a, default_region.get(a, "Global")) for a in assets}
-
-        with st.expander("🗺️ Regional Classification (edit & persist)", expanded=False):
-            reg_df = pd.DataFrame({
-                "Ticker": assets,
-                "Name": [TICKER_NAME_MAP.get(a, a) for a in assets],
-                "Region": [region_map[a] for a in assets],
-                "Weight": [float(w_s.get(a, 0.0)) for a in assets],
-            }).sort_values(["Region", "Weight"], ascending=[True, False])
-
-            edited = st.data_editor(
-                reg_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Region": st.column_config.SelectboxColumn(
-                        "Region",
-                        options=REGION_OPTIONS,
-                        required=True,
-                        help="Edit regions here; changes are stored in session_state."
-                    ),
-                    "Weight": st.column_config.NumberColumn("Weight", format="%.2f")
-                },
-                disabled=["Ticker", "Name", "Weight"],
-                key="region_editor"
-            )
-
-            # Persist overrides (ticker -> region)
-            st.session_state["region_overrides"] = {row["Ticker"]: row["Region"] for _, row in edited.iterrows()}
-            region_map = st.session_state["region_overrides"]
-
-        # --- region weights donut ---
-        region_w = pd.DataFrame({
-            "Region": [region_map.get(a, "Global") for a in assets],
-            "Weight": [float(w_s.get(a, 0.0)) for a in assets]
-        }).groupby("Region", as_index=False)["Weight"].sum()
-        region_w = region_w[region_w["Weight"] > 1e-6].sort_values("Weight", ascending=False)
-
-        if not region_w.empty:
-            fig_rw = px.pie(region_w, names="Region", values="Weight", hole=0.55, title="Portfolio Region Weights (Wheel %)")
-            fig_rw.update_layout(template="plotly_white", height=380, margin=dict(l=10, r=10, t=60, b=10))
-            st.plotly_chart(fig_rw, use_container_width=True)
-
-        # --- compute region return series (stand-alone normalized & contribution-to-total) ---
-        bench_r = pd.Series(dtype=float)
-        if bench is not None and not getattr(bench, "empty", True):
-            bench_r = bench.pct_change().dropna().astype(float)
-
-        # Align to portfolio returns index
-        pr_idx = pr.index
-        bench_r = bench_r.reindex(pr_idx).dropna() if not bench_r.empty else bench_r
-        pr_a, br_a = pr.align(bench_r, join="inner") if not bench_r.empty else (pr, bench_r)
-
-        region_returns = {}
-        region_contrib = {}
-        for reg in sorted(set(region_map.values())):
-            ticks_r = [a for a in assets if region_map.get(a, "Global") == reg]
-            if not ticks_r:
-                continue
-            wr = w_s.reindex(ticks_r).fillna(0.0)
-            wr_sum = float(wr.sum())
-            if wr_sum <= 1e-8:
-                continue
-
-            # normalized region sleeve ($1 in region)
-            w_norm = (wr / wr_sum).to_dict()
-            rr = portfolio_returns_from_weights(ret[ticks_r], w_norm).reindex(pr_idx).dropna()
-            region_returns[reg] = rr.rename(reg)
-
-            # contribution return to total portfolio (sleeve P&L contribution)
-            w_contrib = wr.to_dict()
-            rc = portfolio_returns_from_weights(ret[ticks_r], w_contrib).reindex(pr_idx).dropna()
-            region_contrib[reg] = rc.rename(reg)
-
-        if not region_returns:
-            st.info("No regional sleeves could be built (check weights / region mapping).")
-            st.stop()  # Streamlit-safe stop (avoids 'return outside function' parse issues)
-
-        # --- Regional Risk Analytics UI ---
-        reg_tabs = st.tabs(["🌍 Regional Risk (Absolute)", "🧭 Regional Relative (vs Benchmark)", "📉 Rolling Risk (Historical)"])
-
-        with reg_tabs[0]:
-            st.markdown('<div class="info-card"><b>Regional sleeves</b>: VaR/CVaR/ES computed on each region sleeve normalized to $1 invested in that region.</div>', unsafe_allow_html=True)
-
-            df_list = []
-            for reg, rr in region_returns.items():
-                ve = AdvancedVaREngine(rr)
-                dfm = ve.compare_methods(cl, hp, sims=sims).copy()
-                dfm.insert(0, "Region", reg)
-                df_list.append(dfm)
-
-            rdf = pd.concat(df_list, ignore_index=True)
-            st.dataframe(rdf, use_container_width=True)
-
-            # Heatmap VaR_hp by region & method
-            pivot = rdf.pivot_table(index="Region", columns="Method", values="VaR_hp", aggfunc="mean")
-            pivot = pivot.reindex(index=region_w["Region"].tolist() if not region_w.empty else sorted(pivot.index))
-            fig_hm = go.Figure(data=go.Heatmap(z=pivot.values, x=pivot.columns, y=pivot.index, colorbar=dict(title="VaR_hp")))
-            fig_hm.update_layout(template="plotly_white", height=420, title=f"Regional VaR_hp Heatmap (HP={hp}d, CL={int(cl*100)}%)")
-            st.plotly_chart(fig_hm, use_container_width=True)
-
-            # Bar chart for a selected method
-            sel_method = st.selectbox("Method for regional comparison", list(pivot.columns), index=0)
-            bar_df = pivot[sel_method].dropna().sort_values(ascending=False).reset_index()
-            fig_bar = px.bar(bar_df, x="Region", y=sel_method, title=f"Regional {sel_method} — VaR_hp", text=sel_method)
-            fig_bar.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-            download_csv(rdf, "regional_var_cvar_es_table.csv", "Download Regional Risk Table")
-
-        with reg_tabs[1]:
-            if br_a is None or getattr(br_a, "empty", True) or len(br_a) < 50:
-                st.warning("Benchmark returns are not available/aligned enough for regional relative risk.")
-            else:
-                st.markdown('<div class="info-card"><b>Regional relative risk</b>: Active returns = Region sleeve − Benchmark. Shows Active VaR/CVaR/ES plus Δ (Region − Benchmark).</div>', unsafe_allow_html=True)
-
-                # benchmark metrics
-                vb = AdvancedVaREngine(br_a)
-                bdf = vb.compare_methods(cl, hp, sims=sims).set_index("Method")
-
-                out = []
-                for reg, rr in region_returns.items():
-                    rr_a, br2 = rr.align(br_a, join="inner")
-                    if len(rr_a) < 50:
-                        continue
-                    ve_r = AdvancedVaREngine(rr_a)
-                    df_r = ve_r.compare_methods(cl, hp, sims=sims).set_index("Method")
-
-                    active = (rr_a - br2).rename("Active")
-                    ve_a = AdvancedVaREngine(active)
-                    df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
-
-                    methods = df_r.index.intersection(bdf.index).intersection(df_a.index)
-                    for meth in methods:
-                        out.append({
-                            "Region": reg,
-                            "Method": meth,
-                            "VaR_hp_Region": float(df_r.loc[meth, "VaR_hp"]),
-                            "VaR_hp_Bench": float(bdf.loc[meth, "VaR_hp"]),
-                            "Δ VaR_hp (R−B)": float(df_r.loc[meth, "VaR_hp"] - bdf.loc[meth, "VaR_hp"]),
-                            "Active_VaR_hp": float(df_a.loc[meth, "VaR_hp"]),
-                            "ES_Region": float(df_r.loc[meth, "CVaR"]),
-                            "ES_Bench": float(bdf.loc[meth, "CVaR"]),
-                            "Δ ES (R−B)": float(df_r.loc[meth, "CVaR"] - bdf.loc[meth, "CVaR"]),
-                            "Active_ES": float(df_a.loc[meth, "CVaR"]),
-                        })
-
-                relr = pd.DataFrame(out)
-                if relr.empty:
-                    st.info("No regional relative results (insufficient overlap).")
+                df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
+                df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
+                df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
+                methods = df_p.index.intersection(df_b.index).intersection(df_a.index)
+                if len(methods) == 0:
+                    st.info("No overlapping methods available for relative comparison.")
                 else:
-                    st.dataframe(relr, use_container_width=True)
+                    var_col = "VaR_hp" if use_hp else "VaR_1d"
+                    es_col = "ES_hp" if use_hp else "ES_1d"
 
-                    # Charts: Active VaR by region for selected method
-                    methods = sorted(relr["Method"].unique().tolist())
-                    selm = st.selectbox("Method for active regional comparison", methods, index=0, key="reg_rel_method")
-                    tmp = relr[relr["Method"] == selm].copy()
-                    tmp = tmp.sort_values("Active_VaR_hp", ascending=False)
+                    rel = pd.DataFrame({
+                        "VaR_Port": df_p.loc[methods, var_col],
+                        "VaR_Bench": df_b.loc[methods, var_col],
+                        "Δ VaR (P−B)": df_p.loc[methods, var_col] - df_b.loc[methods, var_col],
+                        "VaR_Active(P−B)": df_a.loc[methods, var_col],
 
-                    fig_act = px.bar(tmp, x="Region", y="Active_VaR_hp", title=f"Active VaR_hp (Region − Benchmark) — {selm}", text="Active_VaR_hp")
-                    fig_act.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
-                    st.plotly_chart(fig_act, use_container_width=True)
+                        "ES_Port": df_p.loc[methods, es_col],
+                        "ES_Bench": df_b.loc[methods, es_col],
+                        "Δ ES (P−B)": df_p.loc[methods, es_col] - df_b.loc[methods, es_col],
+                        "ES_Active(P−B)": df_a.loc[methods, es_col],
+                    }).reset_index().rename(columns={"index": "Method"})
 
-                    fig_d = px.bar(tmp, x="Region", y="Δ VaR_hp (R−B)", title=f"Δ VaR_hp (Region − Benchmark) — {selm}", text="Δ VaR_hp (R−B)")
-                    fig_d.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
+                    st.dataframe(
+                        rel.style.format({
+                            "VaR_Port": "{:.2%}", "VaR_Bench": "{:.2%}", "Δ VaR (P−B)": "{:.2%}", "VaR_Active(P−B)": "{:.2%}",
+                            "ES_Port": "{:.2%}", "ES_Bench": "{:.2%}", "Δ ES (P−B)": "{:.2%}", "ES_Active(P−B)": "{:.2%}",
+                        }),
+                        use_container_width=True
+                    )
+
+                    pick = st.selectbox("Highlight method", rel["Method"].tolist(), index=0, key="rel_pick_method")
+                    sel = rel[rel["Method"] == pick].iloc[0].to_dict()
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric("Δ VaR (P−B)", f'{sel["Δ VaR (P−B)"]:.2%}')
+                    k2.metric("Δ ES (P−B)", f'{sel["Δ ES (P−B)"]:.2%}')
+                    k3.metric("Active VaR", f'{sel["VaR_Active(P−B)"]:.2%}')
+                    k4.metric("Active ES", f'{sel["ES_Active(P−B)"]:.2%}')
+
+            with rel_tabs[1]:
+                st.caption("Active series = Portfolio returns − Benchmark returns (same dates).")
+                ve_a = AdvancedVaREngine(act)
+                st.plotly_chart(ve_a.chart_distribution(cl), use_container_width=True)
+
+                # Rolling historical active risk (simple, robust)
+                win = st.slider("Rolling window (days)", 60, 504, 252, 21, key="rel_roll_win")
+                a = 1 - cl
+                r_act = act.dropna()
+                if len(r_act) >= win + 10:
+                    roll_var = r_act.rolling(win).quantile(a).mul(-1.0)
+                    # ES via rolling apply (best-effort, lightweight)
+                    def _roll_es(x):
+                        q = np.quantile(x, a)
+                        tail = x[x <= q]
+                        return -float(np.mean(tail)) if len(tail) else np.nan
+                    roll_es = r_act.rolling(win).apply(_roll_es, raw=False)
+
+                    fig_roll = go.Figure()
+                    fig_roll.add_trace(go.Scatter(x=roll_var.index, y=roll_var, name=f"Active VaR ({int(cl*100)}%)"))
+                    fig_roll.add_trace(go.Scatter(x=roll_es.index, y=roll_es, name=f"Active ES ({int(cl*100)}%)"))
+                    fig_roll.update_layout(height=420, title="Rolling Active Risk (Historical)", yaxis_tickformat=".2%")
+                    st.plotly_chart(fig_roll, use_container_width=True)
+                else:
+                    st.info("Not enough data for rolling active risk; extend the date range.")
+
+            with rel_tabs[2]:
+                ve_p = AdvancedVaREngine(pr_a)
+                ve_b = AdvancedVaREngine(br_a)
+                ve_a = AdvancedVaREngine(act)
+
+                df_p = ve_p.compare_methods(cl, hp, sims=sims).set_index("Method")
+                df_b = ve_b.compare_methods(cl, hp, sims=sims).set_index("Method")
+                df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
+                methods = df_p.index.intersection(df_b.index).intersection(df_a.index)
+                if len(methods) == 0:
+                    st.info("No overlapping methods available for charts.")
+                else:
+                    # VaR charts (hp)
+                    fig_var = go.Figure()
+                    fig_var.add_trace(go.Bar(x=methods, y=df_p.loc[methods, "VaR_hp"], name="Portfolio"))
+                    fig_var.add_trace(go.Bar(x=methods, y=df_b.loc[methods, "VaR_hp"], name="Benchmark"))
+                    fig_var.add_trace(go.Bar(x=methods, y=df_a.loc[methods, "VaR_hp"], name="Active(P−B)"))
+                    fig_var.update_layout(barmode="group", height=430,
+                                          title=f"VaR (hp={hp}d, CL={int(cl*100)}%) — Portfolio vs Benchmark vs Active",
+                                          xaxis_tickangle=35, yaxis_tickformat=".2%")
+                    st.plotly_chart(fig_var, use_container_width=True)
+
+                    # ES charts (hp)
+                    fig_es = go.Figure()
+                    fig_es.add_trace(go.Bar(x=methods, y=df_p.loc[methods, "ES_hp"], name="Portfolio"))
+                    fig_es.add_trace(go.Bar(x=methods, y=df_b.loc[methods, "ES_hp"], name="Benchmark"))
+                    fig_es.add_trace(go.Bar(x=methods, y=df_a.loc[methods, "ES_hp"], name="Active(P−B)"))
+                    fig_es.update_layout(barmode="group", height=430,
+                                         title=f"ES/CVaR (hp={hp}d, CL={int(cl*100)}%) — Portfolio vs Benchmark vs Active",
+                                         xaxis_tickangle=35, yaxis_tickformat=".2%")
+                    st.plotly_chart(fig_es, use_container_width=True)
+
+                    # Δ charts (P−B)
+                    fig_d = go.Figure()
+                    fig_d.add_trace(go.Bar(x=methods, y=(df_p.loc[methods, "VaR_hp"] - df_b.loc[methods, "VaR_hp"]), name="Δ VaR_hp (P−B)"))
+                    fig_d.add_trace(go.Bar(x=methods, y=(df_p.loc[methods, "ES_hp"] - df_b.loc[methods, "ES_hp"]), name="Δ ES_hp (P−B)"))
+                    fig_d.update_layout(barmode="group", height=420,
+                                        title="Relative Differences (Portfolio − Benchmark)", xaxis_tickangle=35, yaxis_tickformat=".2%")
                     st.plotly_chart(fig_d, use_container_width=True)
 
-                    download_csv(relr, "regional_relative_var_es_table.csv", "Download Regional Relative Risk Table")
+        except Exception as _e:
+            st.warning(f"Relative risk failed: {_e}")
+        st.divider()
+        st.markdown('<div class="subsection-header">Regional Classification & Relative Risk (Institutional)</div>', unsafe_allow_html=True)
 
-        with reg_tabs[2]:
-            st.markdown('<div class="info-card"><b>Rolling Historical Risk</b> (institutional monitoring): rolling VaR/ES for Portfolio, Benchmark, Active, and selected Region sleeve.</div>', unsafe_allow_html=True)
+        try:
+            assets = list(prices.columns)
+            w_s = pd.Series(w, index=assets).fillna(0.0)
+            w_s = w_s / max(1e-12, float(w_s.sum()))
 
-            window = st.slider("Rolling window (days)", 60, 504, 126, 21)
-            cl_opts = [0.90, 0.95, 0.975, 0.99]
-            default_cls = [float(cl)] if float(cl) in cl_opts else [0.95]
-            cl_list = st.multiselect("Confidence curve", cl_opts, default=default_cls)
+            # --- build default region map (universe-category first, then suffix fallback) ---
+            default_region = {a: infer_region(a) for a in assets}
 
-            # choose a region for rolling view
-            reg_pick = st.selectbox("Region sleeve for rolling view", list(region_returns.keys()), index=0, key="rolling_reg_pick")
-            rr = region_returns[reg_pick].reindex(pr_idx).dropna()
+            # Allow user overrides (persist across tabs)
+            overrides = st.session_state.get("region_overrides", {})
+            region_map = {a: overrides.get(a, default_region.get(a, "Global")) for a in assets}
 
-            def rolling_hist_var_es(series: pd.Series, _cl: float, win: int) -> Tuple[pd.Series, pd.Series]:
-                r = series.dropna()
-                if len(r) < win + 5:
-                    idx = series.index
-                    return pd.Series(index=idx, dtype=float), pd.Series(index=idx, dtype=float)
-                a = 1 - _cl
-                var = r.rolling(win).apply(lambda x: -np.percentile(x, a*100), raw=False)
-                es = r.rolling(win).apply(lambda x: -x[x <= np.percentile(x, a*100)].mean() if np.any(x <= np.percentile(x, a*100)) else np.nan, raw=False)
-                return var, es
+            with st.expander("🗺️ Regional Classification (edit & persist)", expanded=False):
+                reg_df = pd.DataFrame({
+                    "Ticker": assets,
+                    "Name": [TICKER_NAME_MAP.get(a, a) for a in assets],
+                    "Region": [region_map[a] for a in assets],
+                    "Weight": [float(w_s.get(a, 0.0)) for a in assets],
+                }).sort_values(["Region", "Weight"], ascending=[True, False])
 
-            # Plot rolling VaR for portfolio, benchmark, active, region
-            for _cl in cl_list:
-                fig_rv = go.Figure()
-                v_p, e_p = rolling_hist_var_es(pr_a, _cl, window)
-                fig_rv.add_trace(go.Scatter(x=v_p.index, y=v_p, mode="lines", name=f"Portfolio VaR({_cl})"))
+                edited = st.data_editor(
+                    reg_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Region": st.column_config.SelectboxColumn(
+                            "Region",
+                            options=REGION_OPTIONS,
+                            required=True,
+                            help="Edit regions here; changes are stored in session_state."
+                        ),
+                        "Weight": st.column_config.NumberColumn("Weight", format="%.2f")
+                    },
+                    disabled=["Ticker", "Name", "Weight"],
+                    key="region_editor"
+                )
 
-                if not br_a.empty:
-                    v_b, e_b = rolling_hist_var_es(br_a, _cl, window)
-                    fig_rv.add_trace(go.Scatter(x=v_b.index, y=v_b, mode="lines", name=f"Benchmark VaR({_cl})"))
+                # Persist overrides (ticker -> region)
+                st.session_state["region_overrides"] = {row["Ticker"]: row["Region"] for _, row in edited.iterrows()}
+                region_map = st.session_state["region_overrides"]
 
-                    act = (pr_a - br_a).dropna()
-                    v_a, e_a = rolling_hist_var_es(act, _cl, window)
-                    fig_rv.add_trace(go.Scatter(x=v_a.index, y=v_a, mode="lines", name=f"Active VaR({_cl})"))
+            # --- region weights donut ---
+            region_w = pd.DataFrame({
+                "Region": [region_map.get(a, "Global") for a in assets],
+                "Weight": [float(w_s.get(a, 0.0)) for a in assets]
+            }).groupby("Region", as_index=False)["Weight"].sum()
+            region_w = region_w[region_w["Weight"] > 1e-6].sort_values("Weight", ascending=False)
 
-                rr_a = rr.reindex(pr_a.index).dropna()
-                v_r, e_r = rolling_hist_var_es(rr_a, _cl, window)
-                fig_rv.add_trace(go.Scatter(x=v_r.index, y=v_r, mode="lines", name=f"{reg_pick} VaR({_cl})"))
+            if not region_w.empty:
+                fig_rw = px.pie(region_w, names="Region", values="Weight", hole=0.55, title="Portfolio Region Weights (Wheel %)")
+                fig_rw.update_layout(template="plotly_white", height=380, margin=dict(l=10, r=10, t=60, b=10))
+                st.plotly_chart(fig_rw, use_container_width=True)
 
-                fig_rv.update_layout(template="plotly_white", height=420, title=f"Rolling Historical VaR — Window={window}d")
-                st.plotly_chart(fig_rv, use_container_width=True)
+            # --- compute region return series (stand-alone normalized & contribution-to-total) ---
+            bench_r = pd.Series(dtype=float)
+            if bench is not None and not getattr(bench, "empty", True):
+                bench_r = bench.pct_change().dropna().astype(float)
 
-                fig_re = go.Figure()
-                fig_re.add_trace(go.Scatter(x=e_p.index, y=e_p, mode="lines", name=f"Portfolio ES({_cl})"))
-                if not br_a.empty:
-                    fig_re.add_trace(go.Scatter(x=e_b.index, y=e_b, mode="lines", name=f"Benchmark ES({_cl})"))
-                    fig_re.add_trace(go.Scatter(x=e_a.index, y=e_a, mode="lines", name=f"Active ES({_cl})"))
-                fig_re.add_trace(go.Scatter(x=e_r.index, y=e_r, mode="lines", name=f"{reg_pick} ES({_cl})"))
-                fig_re.update_layout(template="plotly_white", height=420, title=f"Rolling Historical ES — Window={window}d")
-                st.plotly_chart(fig_re, use_container_width=True)
+            # Align to portfolio returns index
+            pr_idx = pr.index
+            bench_r = bench_r.reindex(pr_idx).dropna() if not bench_r.empty else bench_r
+            pr_a, br_a = pr.align(bench_r, join="inner") if not bench_r.empty else (pr, bench_r)
 
-    except Exception as _re:
-        st.warning(f"Regional relative risk section failed: {_re}")
+            region_returns = {}
+            region_contrib = {}
+            for reg in sorted(set(region_map.values())):
+                ticks_r = [a for a in assets if region_map.get(a, "Global") == reg]
+                if not ticks_r:
+                    continue
+                wr = w_s.reindex(ticks_r).fillna(0.0)
+                wr_sum = float(wr.sum())
+                if wr_sum <= 1e-8:
+                    continue
 
+                # normalized region sleeve ($1 in region)
+                w_norm = (wr / wr_sum).to_dict()
+                rr = portfolio_returns_from_weights(ret[ticks_r], w_norm).reindex(pr_idx).dropna()
+                region_returns[reg] = rr.rename(reg)
+
+                # contribution return to total portfolio (sleeve P&L contribution)
+                w_contrib = wr.to_dict()
+                rc = portfolio_returns_from_weights(ret[ticks_r], w_contrib).reindex(pr_idx).dropna()
+                region_contrib[reg] = rc.rename(reg)
+
+            if not region_returns:
+                st.info("No regional sleeves could be built (check weights / region mapping).")
+                st.stop()  # Streamlit-safe stop (avoids 'return outside function' parse issues)
+
+            # --- Regional Risk Analytics UI ---
+            reg_tabs = st.tabs(["🌍 Regional Risk (Absolute)", "🧭 Regional Relative (vs Benchmark)", "📉 Rolling Risk (Historical)"])
+
+            with reg_tabs[0]:
+                st.markdown('<div class="info-card"><b>Regional sleeves</b>: VaR/CVaR/ES computed on each region sleeve normalized to $1 invested in that region.</div>', unsafe_allow_html=True)
+
+                df_list = []
+                for reg, rr in region_returns.items():
+                    ve = AdvancedVaREngine(rr)
+                    dfm = ve.compare_methods(cl, hp, sims=sims).copy()
+                    dfm.insert(0, "Region", reg)
+                    df_list.append(dfm)
+
+                rdf = pd.concat(df_list, ignore_index=True)
+                st.dataframe(rdf, use_container_width=True)
+
+                # Heatmap VaR_hp by region & method
+                pivot = rdf.pivot_table(index="Region", columns="Method", values="VaR_hp", aggfunc="mean")
+                pivot = pivot.reindex(index=region_w["Region"].tolist() if not region_w.empty else sorted(pivot.index))
+                fig_hm = go.Figure(data=go.Heatmap(z=pivot.values, x=pivot.columns, y=pivot.index, colorbar=dict(title="VaR_hp")))
+                fig_hm.update_layout(template="plotly_white", height=420, title=f"Regional VaR_hp Heatmap (HP={hp}d, CL={int(cl*100)}%)")
+                st.plotly_chart(fig_hm, use_container_width=True)
+
+                # Bar chart for a selected method
+                sel_method = st.selectbox("Method for regional comparison", list(pivot.columns), index=0)
+                bar_df = pivot[sel_method].dropna().sort_values(ascending=False).reset_index()
+                fig_bar = px.bar(bar_df, x="Region", y=sel_method, title=f"Regional {sel_method} — VaR_hp", text=sel_method)
+                fig_bar.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+                download_csv(rdf, "regional_var_cvar_es_table.csv", "Download Regional Risk Table")
+
+            with reg_tabs[1]:
+                if br_a is None or getattr(br_a, "empty", True) or len(br_a) < 50:
+                    st.warning("Benchmark returns are not available/aligned enough for regional relative risk.")
+                else:
+                    st.markdown('<div class="info-card"><b>Regional relative risk</b>: Active returns = Region sleeve − Benchmark. Shows Active VaR/CVaR/ES plus Δ (Region − Benchmark).</div>', unsafe_allow_html=True)
+
+                    # benchmark metrics
+                    vb = AdvancedVaREngine(br_a)
+                    bdf = vb.compare_methods(cl, hp, sims=sims).set_index("Method")
+
+                    out = []
+                    for reg, rr in region_returns.items():
+                        rr_a, br2 = rr.align(br_a, join="inner")
+                        if len(rr_a) < 50:
+                            continue
+                        ve_r = AdvancedVaREngine(rr_a)
+                        df_r = ve_r.compare_methods(cl, hp, sims=sims).set_index("Method")
+
+                        active = (rr_a - br2).rename("Active")
+                        ve_a = AdvancedVaREngine(active)
+                        df_a = ve_a.compare_methods(cl, hp, sims=sims).set_index("Method")
+
+                        methods = df_r.index.intersection(bdf.index).intersection(df_a.index)
+                        for meth in methods:
+                            out.append({
+                                "Region": reg,
+                                "Method": meth,
+                                "VaR_hp_Region": float(df_r.loc[meth, "VaR_hp"]),
+                                "VaR_hp_Bench": float(bdf.loc[meth, "VaR_hp"]),
+                                "Δ VaR_hp (R−B)": float(df_r.loc[meth, "VaR_hp"] - bdf.loc[meth, "VaR_hp"]),
+                                "Active_VaR_hp": float(df_a.loc[meth, "VaR_hp"]),
+                                "ES_Region": float(df_r.loc[meth, "CVaR"]),
+                                "ES_Bench": float(bdf.loc[meth, "CVaR"]),
+                                "Δ ES (R−B)": float(df_r.loc[meth, "CVaR"] - bdf.loc[meth, "CVaR"]),
+                                "Active_ES": float(df_a.loc[meth, "CVaR"]),
+                            })
+
+                    relr = pd.DataFrame(out)
+                    if relr.empty:
+                        st.info("No regional relative results (insufficient overlap).")
+                    else:
+                        st.dataframe(relr, use_container_width=True)
+
+                        # Charts: Active VaR by region for selected method
+                        methods = sorted(relr["Method"].unique().tolist())
+                        selm = st.selectbox("Method for active regional comparison", methods, index=0, key="reg_rel_method")
+                        tmp = relr[relr["Method"] == selm].copy()
+                        tmp = tmp.sort_values("Active_VaR_hp", ascending=False)
+
+                        fig_act = px.bar(tmp, x="Region", y="Active_VaR_hp", title=f"Active VaR_hp (Region − Benchmark) — {selm}", text="Active_VaR_hp")
+                        fig_act.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
+                        st.plotly_chart(fig_act, use_container_width=True)
+
+                        fig_d = px.bar(tmp, x="Region", y="Δ VaR_hp (R−B)", title=f"Δ VaR_hp (Region − Benchmark) — {selm}", text="Δ VaR_hp (R−B)")
+                        fig_d.update_layout(template="plotly_white", height=380, xaxis_tickangle=25)
+                        st.plotly_chart(fig_d, use_container_width=True)
+
+                        download_csv(relr, "regional_relative_var_es_table.csv", "Download Regional Relative Risk Table")
+
+            with reg_tabs[2]:
+                st.markdown('<div class="info-card"><b>Rolling Historical Risk</b> (institutional monitoring): rolling VaR/ES for Portfolio, Benchmark, Active, and selected Region sleeve.</div>', unsafe_allow_html=True)
+
+                window = st.slider("Rolling window (days)", 60, 504, 126, 21)
+                cl_opts = [0.90, 0.95, 0.975, 0.99]
+                default_cls = [float(cl)] if float(cl) in cl_opts else [0.95]
+                cl_list = st.multiselect("Confidence curve", cl_opts, default=default_cls)
+
+                # choose a region for rolling view
+                reg_pick = st.selectbox("Region sleeve for rolling view", list(region_returns.keys()), index=0, key="rolling_reg_pick")
+                rr = region_returns[reg_pick].reindex(pr_idx).dropna()
+
+                def rolling_hist_var_es(series: pd.Series, _cl: float, win: int) -> Tuple[pd.Series, pd.Series]:
+                    r = series.dropna()
+                    if len(r) < win + 5:
+                        idx = series.index
+                        return pd.Series(index=idx, dtype=float), pd.Series(index=idx, dtype=float)
+                    a = 1 - _cl
+                    var = r.rolling(win).apply(lambda x: -np.percentile(x, a*100), raw=False)
+                    es = r.rolling(win).apply(lambda x: -x[x <= np.percentile(x, a*100)].mean() if np.any(x <= np.percentile(x, a*100)) else np.nan, raw=False)
+                    return var, es
+
+                # Plot rolling VaR for portfolio, benchmark, active, region
+                for _cl in cl_list:
+                    fig_rv = go.Figure()
+                    v_p, e_p = rolling_hist_var_es(pr_a, _cl, window)
+                    fig_rv.add_trace(go.Scatter(x=v_p.index, y=v_p, mode="lines", name=f"Portfolio VaR({_cl})"))
+
+                    if not br_a.empty:
+                        v_b, e_b = rolling_hist_var_es(br_a, _cl, window)
+                        fig_rv.add_trace(go.Scatter(x=v_b.index, y=v_b, mode="lines", name=f"Benchmark VaR({_cl})"))
+
+                        act = (pr_a - br_a).dropna()
+                        v_a, e_a = rolling_hist_var_es(act, _cl, window)
+                        fig_rv.add_trace(go.Scatter(x=v_a.index, y=v_a, mode="lines", name=f"Active VaR({_cl})"))
+
+                    rr_a = rr.reindex(pr_a.index).dropna()
+                    v_r, e_r = rolling_hist_var_es(rr_a, _cl, window)
+                    fig_rv.add_trace(go.Scatter(x=v_r.index, y=v_r, mode="lines", name=f"{reg_pick} VaR({_cl})"))
+
+                    fig_rv.update_layout(template="plotly_white", height=420, title=f"Rolling Historical VaR — Window={window}d")
+                    st.plotly_chart(fig_rv, use_container_width=True)
+
+                    fig_re = go.Figure()
+                    fig_re.add_trace(go.Scatter(x=e_p.index, y=e_p, mode="lines", name=f"Portfolio ES({_cl})"))
+                    if not br_a.empty:
+                        fig_re.add_trace(go.Scatter(x=e_b.index, y=e_b, mode="lines", name=f"Benchmark ES({_cl})"))
+                        fig_re.add_trace(go.Scatter(x=e_a.index, y=e_a, mode="lines", name=f"Active ES({_cl})"))
+                    fig_re.add_trace(go.Scatter(x=e_r.index, y=e_r, mode="lines", name=f"{reg_pick} ES({_cl})"))
+                    fig_re.update_layout(template="plotly_white", height=420, title=f"Rolling Historical ES — Window={window}d")
+                    st.plotly_chart(fig_re, use_container_width=True)
+
+        except Exception as _re:
+            st.warning(f"Regional relative risk section failed: {_re}")
 def tab_stress_testing(prices: pd.DataFrame):
     st.markdown('<div class="section-header">Stress Testing Lab (Historical + Custom + Shock Simulator)</div>', unsafe_allow_html=True)
 
